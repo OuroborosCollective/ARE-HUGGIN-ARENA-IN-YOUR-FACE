@@ -24,10 +24,28 @@ import {
   ExternalLink,
   Volume2,
   VolumeX,
-  Dumbbell
+  Dumbbell,
+  Box,
+  Eye,
+  Layers,
+  Maximize2
 } from 'lucide-react';
+import { ArenaViewport, CharacterModel3DInfo } from './ArenaViewport';
+import { Model3DSelectorModal, DEFAULT_3D_CHIBI_MODELS } from './Model3DSelectorModal';
+import { HonorMedalsVaultModal, CANONICAL_HONOR_MEDALS, HonorMedalDefinition } from './HonorMedalsVaultModal';
+import { MatchQueueVisualizer } from './MatchQueueVisualizer';
+import { MatchQueueItem } from '../utils/matchQueueService';
+import {
+  CombatEngine,
+  CombatRevisionRecord,
+  CombatTurn,
+  CombatStats
+} from '../utils/combatEngine';
+import { useFirebaseAuth } from '../context/FirebaseAuthContext';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
-export type CharacterClass = 'paladin' | 'archmage' | 'assassin' | 'berserker';
+export type CharacterClass = 'paladin' | 'archmage' | 'assassin' | 'berserker' | 'logic_knight';
 
 export interface HeroProfile {
   name: string;
@@ -45,6 +63,9 @@ export interface HeroProfile {
     critBonus: number;
   };
   statPointsAvailable: number;
+  selectedModel3DId?: string;
+  claimedMilestoneIds?: string[];
+  processedMatchReceipts?: string[];
   equippedMedalId?: string;
 }
 
@@ -54,22 +75,6 @@ interface FloatingText {
   type: 'damage_hero' | 'damage_enemy' | 'heal' | 'crit' | 'shield' | 'xp' | 'miss';
   x: number;
   y: number;
-}
-
-interface CombatantState {
-  name: string;
-  maxHp: number;
-  currentHp: number;
-  maxEnergy: number;
-  currentEnergy: number;
-  atk: number;
-  def: number;
-  critRate: number;
-  speed: number;
-  level: number;
-  scale: number;
-  isHero: boolean;
-  statusEffects: Array<{ name: string; duration: number; type: 'buff' | 'debuff' }>;
 }
 
 interface BattleLogEntry {
@@ -94,6 +99,11 @@ interface RpgAutoBattlerProps {
 }
 
 export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, availableOpponents = [] }) => {
+  const { user } = useFirebaseAuth();
+
+  // Viewport mode: 3D WebGL Arena vs 2D Sprites
+  const [viewMode, setViewMode] = useState<'3d' | '2d'>('3d');
+
   // Sound effects toggle
   const [soundEnabled, setSoundEnabled] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -207,9 +217,51 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
         hpBonus: 0,
         critBonus: 0
       },
-      statPointsAvailable: 3
+      statPointsAvailable: 3,
+      selectedModel3DId: 'chibi_paladin_aegis',
+      claimedMilestoneIds: [],
+      processedMatchReceipts: []
     };
   });
+
+  // Sync with Firestore RPG Profile when authenticated
+  useEffect(() => {
+    if (!user) return;
+    const fetchCloudHero = async () => {
+      try {
+        const heroRef = doc(db, 'users', user.uid, 'rpg_profile', 'hero');
+        const snap = await getDoc(heroRef);
+        if (snap.exists()) {
+          const cloudData = snap.data() as Partial<HeroProfile>;
+          setHero((localHero) => {
+            // Idempotent merge: Take highest level and union of claimed milestones
+            const mergedClaimed = Array.from(
+              new Set([...(localHero.claimedMilestoneIds || []), ...(cloudData.claimedMilestoneIds || [])])
+            );
+            const mergedReceipts = Array.from(
+              new Set([...(localHero.processedMatchReceipts || []), ...(cloudData.processedMatchReceipts || [])])
+            );
+
+            const merged: HeroProfile = {
+              ...localHero,
+              ...cloudData,
+              level: Math.max(localHero.level, cloudData.level || 1),
+              totalWins: Math.max(localHero.totalWins, cloudData.totalWins || 0),
+              totalBattles: Math.max(localHero.totalBattles, cloudData.totalBattles || 0),
+              revisionPoints: Math.max(localHero.revisionPoints, cloudData.revisionPoints || 0),
+              claimedMilestoneIds: mergedClaimed,
+              processedMatchReceipts: mergedReceipts
+            };
+            localStorage.setItem('are_rpg_hero_profile_v2', JSON.stringify(merged));
+            return merged;
+          });
+        }
+      } catch (err) {
+        console.warn('Cloud RPG profile sync warning:', err);
+      }
+    };
+    fetchCloudHero();
+  }, [user]);
 
   const saveHero = (updatedHero: HeroProfile) => {
     setHero(updatedHero);
@@ -218,12 +270,31 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
     } catch (e) {
       console.warn('Failed to persist hero:', e);
     }
+
+    if (user) {
+      const heroRef = doc(db, 'users', user.uid, 'rpg_profile', 'hero');
+      setDoc(heroRef, {
+        ...updatedHero,
+        id: 'hero',
+        userId: user.uid,
+        updatedAt: new Date().toISOString()
+      }, { merge: true }).catch((e) => console.warn('Firestore hero save error:', e));
+    }
   };
+
+  // 3D Models & Selection State
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [selectedModel3D, setSelectedModel3D] = useState<CharacterModel3DInfo | null>(() => {
+    return DEFAULT_3D_CHIBI_MODELS.find(m => m.id === hero.selectedModel3DId) || DEFAULT_3D_CHIBI_MODELS[0];
+  });
+
+  // Honor Medals Vault Modal State
+  const [medalsModalOpen, setMedalsModalOpen] = useState(false);
 
   // XP needed formula
   const getXpNeeded = (lvl: number) => Math.round(100 * Math.pow(1.3, lvl - 1));
 
-  // Compute base scale & title tier based on level
+  // Tier info & visual scaling
   const getTierInfo = (lvl: number) => {
     if (lvl >= 20) {
       return {
@@ -270,29 +341,12 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
 
   const tierInfo = getTierInfo(hero.level);
 
-  // Dynamic Scaling incorporates Level + Win-Streak & Win-Rate Efficiency Multiplier
+  // Dynamic Scaling incorporates Level + Win-Streak Bonus
   const winRate = hero.totalBattles > 0 ? (hero.totalWins / hero.totalBattles) : 0;
   const streakScaleBonus = Math.min(0.25, winRate * 0.15 + (hero.totalWins >= 10 ? 0.1 : hero.totalWins >= 5 ? 0.05 : 0));
   const dynamicHeroScale = Number((tierInfo.scale + streakScaleBonus).toFixed(2));
 
-  // Compute full Hero Combat Stats
-  const calculateHeroStats = () => {
-    const baseHp = hero.className === 'paladin' ? 600 : hero.className === 'berserker' ? 550 : 450;
-    const baseAtk = hero.className === 'berserker' ? 65 : hero.className === 'assassin' ? 70 : hero.className === 'archmage' ? 68 : 50;
-    const baseDef = hero.className === 'paladin' ? 45 : hero.className === 'archmage' ? 25 : 30;
-    const baseCrit = hero.className === 'assassin' ? 25 : 12;
-    const baseSpeed = hero.className === 'assassin' ? 120 : hero.className === 'archmage' ? 105 : 95;
-
-    return {
-      maxHp: baseHp + (hero.level - 1) * 55 + hero.allocatedStats.hpBonus * 40,
-      atk: baseAtk + (hero.level - 1) * 9 + hero.allocatedStats.atkBonus * 6,
-      def: baseDef + (hero.level - 1) * 6 + hero.allocatedStats.defBonus * 5,
-      critRate: Math.min(65, baseCrit + (hero.level - 1) * 1.5 + hero.allocatedStats.critBonus * 3),
-      speed: baseSpeed + (hero.level - 1) * 4
-    };
-  };
-
-  // Opponent Setup
+  // Opponents
   const defaultOpponents = availableOpponents.length > 0
     ? availableOpponents
     : [
@@ -305,7 +359,16 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
   const [selectedOpponentIdx, setSelectedOpponentIdx] = useState(0);
   const currentOpponent = defaultOpponents[selectedOpponentIdx] || defaultOpponents[0];
 
-  // Battle Engine State
+  // Derived Combat Stats via CombatEngine
+  const heroCombatStats: CombatStats = CombatEngine.calculateHeroCombatStats(hero, {
+    merkleRootHash: `0x_proof_${hero.level}_${hero.revisionPoints}`
+  });
+  const opponentCombatStats: CombatStats = CombatEngine.calculateOpponentCombatStats(
+    currentOpponent,
+    hero.level
+  );
+
+  // Battle State
   const [battleActive, setBattleActive] = useState(false);
   const [battleSpeed, setBattleSpeed] = useState<1 | 2 | 4>(1);
   const [battleTurn, setBattleTurn] = useState(0);
@@ -313,17 +376,12 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
   const [battleLogs, setBattleLogs] = useState<BattleLogEntry[]>([]);
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [lastReceiptHash, setLastReceiptHash] = useState<string>('');
-
-  // Live Combatants in Arena
-  const [heroCombatant, setHeroCombatant] = useState<CombatantState | null>(null);
-  const [enemyCombatant, setEnemyCombatant] = useState<CombatantState | null>(null);
-
-  // Animation triggers & Projectiles
-  const [heroAnim, setHeroAnim] = useState<'idle' | 'attack' | 'hit' | 'ultimate' | 'block'>('idle');
-  const [enemyAnim, setEnemyAnim] = useState<'idle' | 'attack' | 'hit' | 'ultimate' | 'block'>('idle');
-  const [projectileEffect, setProjectileEffect] = useState<{ active: boolean; type: 'hero_slash' | 'enemy_strike' | 'ultimate_burst' } | null>(null);
-  const [screenShake, setScreenShake] = useState(false);
+  const [currentCombatTurnData, setCurrentCombatTurnData] = useState<CombatTurn | null>(null);
   const [levelUpCelebration, setLevelUpCelebration] = useState<{ active: boolean; newLevel: number } | null>(null);
+
+  // Deterministic Match Pipeline Reference
+  const activeMatchRevisionRef = useRef<CombatRevisionRecord | null>(null);
+  const currentTurnIndexRef = useRef<number>(0);
 
   // Training grounds state
   const [trainingActive, setTrainingActive] = useState(false);
@@ -332,14 +390,14 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
 
   // Spawn floating text
   const addFloatingText = (text: string, type: FloatingText['type'], x: number, y: number) => {
-    const id = `ft_${Date.now()}_${Math.random()}`;
+    const id = `ft_${Math.random().toString(36).substring(2, 9)}`;
     setFloatingTexts(prev => [...prev, { id, text, type, x, y }]);
     setTimeout(() => {
       setFloatingTexts(prev => prev.filter(f => f.id !== id));
     }, 1200);
   };
 
-  // Add XP and handle Level-Up with Fanfare
+  // Idempotent XP Grant with Level-Up Fanfare
   const grantXp = (amount: number, reason: string) => {
     let newXp = hero.currentXp + amount;
     let newLevel = hero.level;
@@ -373,48 +431,72 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
     saveHero(updatedHero);
   };
 
-  // Initialize Combat
+  // Idempotent Claim for Reached Milestones & Medals
+  const handleClaimMilestone = (medal: HonorMedalDefinition) => {
+    const milestoneId = medal.id;
+    const existingClaimed = hero.claimedMilestoneIds || [];
+
+    // Idempotent Check: if already claimed, do nothing!
+    if (existingClaimed.includes(milestoneId)) {
+      return;
+    }
+
+    playSfx('win');
+    addFloatingText(`🎖️ CLAIMED: ${medal.name}!`, 'heal', 50, 40);
+
+    let newXp = hero.currentXp + medal.rewardXp;
+    let newLevel = hero.level;
+    let newStatPoints = hero.statPointsAvailable + medal.rewardSp;
+
+    while (newXp >= getXpNeeded(newLevel)) {
+      newXp -= getXpNeeded(newLevel);
+      newLevel += 1;
+      newStatPoints += 3;
+    }
+
+    const updatedHero: HeroProfile = {
+      ...hero,
+      level: newLevel,
+      currentXp: newXp,
+      statPointsAvailable: newStatPoints,
+      revisionPoints: hero.revisionPoints + medal.rewardRevisionPts,
+      claimedMilestoneIds: [...existingClaimed, milestoneId]
+    };
+
+    saveHero(updatedHero);
+  };
+
+  // -------------------------------------------------------------
+  // PURE DETERMINISTIC COMBAT ENGINE EXECUTION
+  // -------------------------------------------------------------
   const startBattle = () => {
-    const hStats = calculateHeroStats();
-    const eLevel = Math.max(1, hero.level + (selectedOpponentIdx - 1));
-    const eHp = 480 + eLevel * 50;
-    const eAtk = 48 + eLevel * 8;
-    const eDef = 28 + eLevel * 5;
+    // 1. Calculate entire deterministic match sequence based purely on immutable dataset attributes
+    const matchRecord = CombatEngine.runFullCombat(
+      {
+        name: hero.name,
+        className: hero.className,
+        level: hero.level,
+        currentXp: hero.currentXp,
+        totalBattles: hero.totalBattles,
+        totalWins: hero.totalWins,
+        revisionPoints: hero.revisionPoints,
+        allocatedStats: hero.allocatedStats,
+        selectedModel3DId: selectedModel3D?.id
+      },
+      currentOpponent,
+      {
+        merkleRootHash: `0x_proof_root_${hero.level}_${hero.revisionPoints}`
+      }
+    );
 
-    setHeroCombatant({
-      name: hero.name,
-      maxHp: hStats.maxHp,
-      currentHp: hStats.maxHp,
-      maxEnergy: 100,
-      currentEnergy: 20,
-      atk: hStats.atk,
-      def: hStats.def,
-      critRate: hStats.critRate,
-      speed: hStats.speed,
-      level: hero.level,
-      scale: dynamicHeroScale,
-      isHero: true,
-      statusEffects: []
-    });
-
-    setEnemyCombatant({
-      name: currentOpponent.name,
-      maxHp: eHp,
-      currentHp: eHp,
-      maxEnergy: 100,
-      currentEnergy: 10,
-      atk: eAtk,
-      def: eDef,
-      critRate: 15,
-      speed: 90 + eLevel * 3,
-      level: eLevel,
-      scale: 1.0 + eLevel * 0.02,
-      isHero: false,
-      statusEffects: []
-    });
+    activeMatchRevisionRef.current = matchRecord;
+    currentTurnIndexRef.current = 0;
 
     setBattleTurn(1);
     setCombatWinner(null);
+    setCurrentCombatTurnData(null);
+    setLastReceiptHash(matchRecord.proofOfWorkHash);
+
     setBattleLogs([
       {
         id: `log_0`,
@@ -423,147 +505,99 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
         actionName: 'BATTLE START',
         damage: 0,
         isCrit: false,
-        message: `⚔️ Title match initiated: [${hero.name} Lv.${hero.level} (${dynamicHeroScale}x)] VS [${currentOpponent.name} Lv.${eLevel}]!`,
+        message: `⚔️ Pure Deterministic Title match initiated: [${hero.name} Lv.${hero.level} (${dynamicHeroScale}x)] VS [${currentOpponent.name}]! Proof: ${matchRecord.proofOfWorkHash.slice(0, 14)}...`,
         type: 'system'
       }
     ]);
+
     setBattleActive(true);
   };
 
-  // Battle Turn Loop Effect
+  // -------------------------------------------------------------
+  // AUTOMATIC COMBAT ANIMATION TICK (No WASD / Manual Movement)
+  // -------------------------------------------------------------
   useEffect(() => {
-    if (!battleActive || combatWinner || !heroCombatant || !enemyCombatant) return;
+    if (!battleActive || combatWinner || !activeMatchRevisionRef.current) return;
 
-    const delay = 1400 / battleSpeed;
+    const matchRecord = activeMatchRevisionRef.current;
+    const delay = 1300 / battleSpeed;
+
     const timer = setTimeout(() => {
-      // Execute 1 turn
-      const heroFirst = heroCombatant.speed >= enemyCombatant.speed;
+      const turnIndex = currentTurnIndexRef.current;
 
-      // First Actor Strike
-      const attacker = heroFirst ? heroCombatant : enemyCombatant;
-      const defender = heroFirst ? enemyCombatant : heroCombatant;
-      const isHeroAttacking = heroFirst;
+      if (turnIndex < matchRecord.turns.length) {
+        const turnData = matchRecord.turns[turnIndex];
+        setCurrentCombatTurnData(turnData);
+        setBattleTurn(turnData.turn);
 
-      const isUltimate = attacker.currentEnergy >= 100;
-      const isCrit = Math.random() * 100 < attacker.critRate;
-      let rawDamage = isUltimate
-        ? attacker.atk * 2.4
-        : attacker.atk * (1 + (Math.random() * 0.3 - 0.15));
-
-      if (isCrit) rawDamage *= 1.6;
-
-      const defReduction = Math.max(0.2, 1 - defender.def / (defender.def + 120));
-      const finalDamage = Math.max(15, Math.round(rawDamage * defReduction));
-
-      const newDefenderHp = Math.max(0, defender.currentHp - finalDamage);
-      const newAttackerEnergy = isUltimate ? 0 : Math.min(100, attacker.currentEnergy + 35);
-
-      // Trigger Framer Motion animations & Projectiles
-      if (isHeroAttacking) {
-        setHeroAnim(isUltimate ? 'ultimate' : 'attack');
-        setEnemyAnim('hit');
-        setProjectileEffect({ active: true, type: isUltimate ? 'ultimate_burst' : 'hero_slash' });
-        playSfx(isCrit ? 'crit' : isUltimate ? 'skill' : 'hit');
+        // Sound & Floating text
+        playSfx(turnData.isCrit ? 'crit' : turnData.isUltimate ? 'skill' : 'hit');
         addFloatingText(
-          isCrit ? `💥 CRIT -${finalDamage}` : `-${finalDamage}`,
-          isCrit ? 'crit' : 'damage_enemy',
-          72,
+          turnData.isCrit ? `💥 CRIT -${turnData.mitigatedDamage}` : `-${turnData.mitigatedDamage}`,
+          turnData.isCrit ? 'crit' : turnData.attacker === 'hero' ? 'damage_enemy' : 'damage_hero',
+          turnData.attacker === 'hero' ? 70 : 30,
           42
         );
+
+        // Add to log
+        const logEntry: BattleLogEntry = {
+          id: `log_${turnData.turn}_${turnIndex}`,
+          turn: turnData.turn,
+          actor: turnData.attackerName,
+          actionName: turnData.actionName,
+          damage: turnData.mitigatedDamage,
+          isCrit: turnData.isCrit,
+          message: turnData.message,
+          type: turnData.actionType === 'ultimate' ? 'ultimate' : 'attack'
+        };
+
+        setBattleLogs(prev => [logEntry, ...prev.slice(0, 40)]);
+        currentTurnIndexRef.current += 1;
       } else {
-        setEnemyAnim(isUltimate ? 'ultimate' : 'attack');
-        setHeroAnim('hit');
-        setProjectileEffect({ active: true, type: 'enemy_strike' });
-        playSfx(isCrit ? 'crit' : isUltimate ? 'skill' : 'hit');
-        addFloatingText(
-          isCrit ? `💥 CRIT -${finalDamage}` : `-${finalDamage}`,
-          isCrit ? 'crit' : 'damage_hero',
-          28,
-          42
-        );
-      }
-
-      // Screen Shake
-      if (isCrit || isUltimate) {
-        setScreenShake(true);
-        setTimeout(() => setScreenShake(false), 300);
-      }
-
-      setTimeout(() => {
-        setHeroAnim('idle');
-        setEnemyAnim('idle');
-        setProjectileEffect(null);
-      }, 500 / battleSpeed);
-
-      // Action Title
-      const actionName = isUltimate
-        ? isHeroAttacking
-          ? '🌌 AST Empty Clause Contradiction'
-          : '⚡ Neural Invariant Disruption'
-        : isHeroAttacking
-        ? '⚔️ Logic Resolution Attack'
-        : '🛡️ SAT Invariant Counter';
-
-      // Log Entry
-      const newLog: BattleLogEntry = {
-        id: `log_${Date.now()}_${battleTurn}`,
-        turn: battleTurn,
-        actor: attacker.name,
-        actionName,
-        damage: finalDamage,
-        isCrit,
-        message: `${attacker.name} executed ${actionName} for ${finalDamage} damage!${isCrit ? ' [CRITICAL RESOLUTION]' : ''}`,
-        type: isUltimate ? 'ultimate' : 'attack'
-      };
-
-      setBattleLogs(prev => [newLog, ...prev.slice(0, 40)]);
-
-      // Update State
-      if (isHeroAttacking) {
-        setHeroCombatant(h => h ? { ...h, currentEnergy: newAttackerEnergy } : null);
-        setEnemyCombatant(e => e ? { ...e, currentHp: newDefenderHp } : null);
-      } else {
-        setEnemyCombatant(e => e ? { ...e, currentEnergy: newAttackerEnergy } : null);
-        setHeroCombatant(h => h ? { ...h, currentHp: newDefenderHp } : null);
-      }
-
-      // Check Match End Condition
-      if (newDefenderHp <= 0) {
-        const winner = isHeroAttacking ? 'hero' : 'enemy';
+        // MATCH FINISHED: Save Proof of Work Revision to Firestore
+        const isVictory = matchRecord.outcome === 'VICTORY';
+        const winner = isVictory ? 'hero' : 'enemy';
         setCombatWinner(winner);
         setBattleActive(false);
 
-        const receipt = `rcpt_0x${Math.random().toString(16).slice(2, 10)}${Math.random().toString(16).slice(2, 10)}`;
-        setLastReceiptHash(receipt);
+        // Save proof-of-work revision to Firestore
+        CombatEngine.saveCombatRevisionToFirestore(matchRecord, user).then((res) => {
+          if (res.success) {
+            console.log('Proof-of-work combat revision permanently anchored to Firestore:', res.revisionId);
+          }
+        });
 
-        if (winner === 'hero') {
-          playSfx('win');
-          const xpGained = 180 + hero.level * 25;
-          grantXp(xpGained, 'Tournament Battle Victory');
+        const receipt = matchRecord.proofOfWorkHash;
+        const alreadyProcessed = (hero.processedMatchReceipts || []).includes(receipt);
 
-          saveHero({
-            ...hero,
-            totalBattles: hero.totalBattles + 1,
-            totalWins: hero.totalWins + 1,
-            revisionPoints: hero.revisionPoints + 85
-          });
-        } else {
-          const xpGained = 60;
-          grantXp(xpGained, 'Battle Consolation XP');
-          saveHero({
-            ...hero,
-            totalBattles: hero.totalBattles + 1
-          });
+        if (!alreadyProcessed) {
+          if (isVictory) {
+            playSfx('win');
+            grantXp(matchRecord.xpAwarded, 'Tournament Battle Victory');
+
+            saveHero({
+              ...hero,
+              totalBattles: hero.totalBattles + 1,
+              totalWins: hero.totalWins + 1,
+              revisionPoints: hero.revisionPoints + matchRecord.pointsAwarded,
+              processedMatchReceipts: [...(hero.processedMatchReceipts || []), receipt]
+            });
+          } else {
+            grantXp(matchRecord.xpAwarded, 'Battle Consolation XP');
+            saveHero({
+              ...hero,
+              totalBattles: hero.totalBattles + 1,
+              processedMatchReceipts: [...(hero.processedMatchReceipts || []), receipt]
+            });
+          }
         }
-      } else {
-        setBattleTurn(t => t + 1);
       }
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [battleActive, battleTurn, battleSpeed, heroCombatant, enemyCombatant, combatWinner]);
+  }, [battleActive, battleTurn, battleSpeed, combatWinner]);
 
-  // Quick Training Drill Function
+  // Deterministic Training Drill
   const runTrainingDrill = (drillName: string, xpReward: number, durationMs: number) => {
     if (trainingActive || battleActive) return;
     setTrainingActive(true);
@@ -608,7 +642,32 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
     playSfx('shield');
   };
 
-  const heroStats = calculateHeroStats();
+  // Load Match from Match Queue into 3D Arena
+  const handleLoadQueueMatchInto3D = (item: MatchQueueItem) => {
+    setViewMode('3d');
+    const f1Model: CharacterModel3DInfo = {
+      id: item.fighter1.id,
+      name: item.fighter1.name,
+      characterClass: item.fighter1.characterClass,
+      modelUrl: item.fighter1.modelUrl || '',
+      scale: item.fighter1.scale || 1.0,
+      description: item.fighter1.description,
+      evidenceAffinity: item.fighter1.evidenceAffinity
+    };
+    setSelectedModel3D(f1Model);
+
+    if (item.revisionRecord) {
+      activeMatchRevisionRef.current = item.revisionRecord;
+      currentTurnIndexRef.current = 0;
+      setBattleTurn(1);
+      setCombatWinner(null);
+      setCurrentCombatTurnData(null);
+      setLastReceiptHash(item.proofOfWorkHash || '');
+      setBattleActive(true);
+    } else {
+      startBattle();
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -645,7 +704,7 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-lg sm:text-xl font-black text-slate-100 tracking-tight">
-                  ARE RPG Auto-Battler &amp; Hero Growth
+                  ARE 3D RPG Auto-Battler &amp; Proof-of-Work Engine
                 </h3>
                 <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-mono font-black ${tierInfo.colorBadge}`}>
                   {tierInfo.tier}
@@ -661,12 +720,33 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                 )}
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Train your logic avatar, accumulate revision XP, level up, unlock mythic visual scale (Raid-style champion growth), and autobattle against tournament champions!
+                3D Three.js Chibi Fighter environment, deterministic CombatEngine calculated solely on immutable dataset attributes, and proof-of-work revisions saved to Firestore.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Honor Medals Vault Button */}
+            <button
+              onClick={() => setMedalsModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono rounded-xl min-h-[40px] transition-colors"
+              title="Open Honor Medals Vault & Idempotent Claims"
+            >
+              <Award className="w-4 h-4 text-amber-400" />
+              <span>Honor Medals Vault</span>
+            </button>
+
+            {/* 3D GLB Chibi Fighter Selector Button */}
+            <button
+              onClick={() => setModelSelectorOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs font-mono rounded-xl border border-slate-800 min-h-[40px] transition-colors"
+              title="Select or upload 3D GLB Chibi Fighter"
+            >
+              <Box className="w-4 h-4 text-cyan-400" />
+              <span>3D Model: {selectedModel3D?.name.split(' ')[0] || 'Chibi'}</span>
+            </button>
+
+            {/* Audio Button */}
             <button
               onClick={() => setSoundEnabled(prev => !prev)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs font-mono rounded-xl border border-slate-800 min-h-[40px] transition-colors"
@@ -685,7 +765,7 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                     hero_profile: hero,
                     tier: tierInfo.tier,
                     dynamic_scale: dynamicHeroScale,
-                    stats: heroStats,
+                    stats: heroCombatStats,
                     last_receipt: lastReceiptHash
                   },
                   'ouroboroscollective/evidence-bound-css'
@@ -750,9 +830,9 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                   </motion.div>
                 )}
 
-                {/* Pixelated / RPG Character Figure */}
+                {/* RPG Character Figure */}
                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shadow-xl transition-all ${tierInfo.glowClass} bg-gradient-to-br from-slate-800 via-slate-900 to-black`}>
-                  {hero.className === 'paladin' ? '🛡️' : hero.className === 'archmage' ? '🔮' : hero.className === 'assassin' ? '🗡️' : '🪓'}
+                  {hero.className === 'paladin' ? '🛡️' : hero.className === 'archmage' ? '🔮' : hero.className === 'assassin' ? '🗡️' : hero.className === 'berserker' ? '🪓' : '👑'}
                 </div>
 
                 <span className="mt-2 text-xs font-black font-mono text-amber-300 tracking-wider">
@@ -762,6 +842,12 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                   {tierInfo.title}
                 </span>
               </motion.div>
+
+              {/* Active 3D GLB Model Badge */}
+              <div className="absolute top-2 left-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-lg text-[10px] font-mono text-cyan-300 flex items-center gap-1">
+                <Box className="w-3 h-3 text-cyan-400" />
+                <span>{selectedModel3D?.name || '3D Chibi'}</span>
+              </div>
 
               {/* Revision Points Badge */}
               <div className="absolute bottom-2 right-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-lg text-[10px] font-mono text-amber-400 font-bold flex items-center gap-1">
@@ -792,9 +878,9 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
               <label className="text-xs text-slate-400 font-mono block">Class Specialty:</label>
               <div className="grid grid-cols-2 gap-1.5 text-xs font-mono">
                 {[
-                  { id: 'paladin', label: '🛡️ Paladin (DEF/HP)' },
+                  { id: 'paladin', label: '🛡️ Paladin (DEF)' },
                   { id: 'archmage', label: '🔮 Archmage (Burst)' },
-                  { id: 'assassin', label: '🗡️ Assassin (Crit/SPD)' },
+                  { id: 'assassin', label: '🗡️ Assassin (Crit)' },
                   { id: 'berserker', label: '🪓 Berserker (ATK)' }
                 ].map(c => (
                   <button
@@ -856,11 +942,11 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                   <Heart className="w-4 h-4 text-rose-400" />
                   <div>
                     <span className="text-slate-300 font-bold block">Health / Shield (HP)</span>
-                    <span className="text-[11px] text-slate-500">Base {heroStats.maxHp} + {hero.allocatedStats.hpBonus * 40}</span>
+                    <span className="text-[11px] text-slate-500">Base {heroCombatStats.maxHp}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-black text-rose-400">{heroStats.maxHp}</span>
+                  <span className="text-sm font-black text-rose-400">{heroCombatStats.maxHp}</span>
                   <button
                     onClick={() => allocateStat('hpBonus')}
                     disabled={hero.statPointsAvailable <= 0}
@@ -877,11 +963,11 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                   <Swords className="w-4 h-4 text-amber-400" />
                   <div>
                     <span className="text-slate-300 font-bold block">Logic Strike (ATK)</span>
-                    <span className="text-[11px] text-slate-500">Base {heroStats.atk} + {hero.allocatedStats.atkBonus * 6}</span>
+                    <span className="text-[11px] text-slate-500">Base {heroCombatStats.atk}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-black text-amber-400">{heroStats.atk}</span>
+                  <span className="text-sm font-black text-amber-400">{heroCombatStats.atk}</span>
                   <button
                     onClick={() => allocateStat('atkBonus')}
                     disabled={hero.statPointsAvailable <= 0}
@@ -898,11 +984,11 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                   <Shield className="w-4 h-4 text-indigo-400" />
                   <div>
                     <span className="text-slate-300 font-bold block">Invariant Defense (DEF)</span>
-                    <span className="text-[11px] text-slate-500">Base {heroStats.def} + {hero.allocatedStats.defBonus * 5}</span>
+                    <span className="text-[11px] text-slate-500">Base {heroCombatStats.def}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-black text-indigo-400">{heroStats.def}</span>
+                  <span className="text-sm font-black text-indigo-400">{heroCombatStats.def}</span>
                   <button
                     onClick={() => allocateStat('defBonus')}
                     disabled={hero.statPointsAvailable <= 0}
@@ -919,11 +1005,11 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                   <Zap className="w-4 h-4 text-cyan-400" />
                   <div>
                     <span className="text-slate-300 font-bold block">Critical Wit (CRIT)</span>
-                    <span className="text-[11px] text-slate-500">Rate {heroStats.critRate.toFixed(1)}%</span>
+                    <span className="text-[11px] text-slate-500">Rate {heroCombatStats.critRate.toFixed(1)}%</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-black text-cyan-400">{heroStats.critRate.toFixed(1)}%</span>
+                  <span className="text-sm font-black text-cyan-400">{heroCombatStats.critRate.toFixed(1)}%</span>
                   <button
                     onClick={() => allocateStat('critBonus')}
                     disabled={hero.statPointsAvailable <= 0}
@@ -940,10 +1026,10 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
           <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/30 text-xs font-mono space-y-1">
             <span className="text-[10px] text-amber-400 uppercase font-bold flex items-center gap-1">
               <Award className="w-3.5 h-3.5" />
-              <span>Honor Medal Resonance: Active</span>
+              <span>Idempotent Claims: {(hero.claimedMilestoneIds || []).length} Claimed</span>
             </span>
             <p className="text-slate-300 text-[11px]">
-              +15% Logic Resolution Burst &amp; AST Shielding enabled by Throne Sovereign &amp; Sentinel Medals.
+              Click "Honor Medals Vault" to view and claim reached milestone rewards without ever duplicate-awarding.
             </p>
           </div>
         </div>
@@ -987,7 +1073,7 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
             <div className="space-y-2 text-xs font-mono">
               {[
                 { name: '📐 DAG Acyclicity Sparring', xp: 85, time: 2000, desc: 'Topological order constraint solver' },
-                { name: '🛡️ CSS Invariant Bounding Drill', xp: 120, time: 3000, desc: 'Zero-overflow mobile layout verification' },
+                { name: '🛡️ CSS Invariant Bounding Drill', xp: 120, time: 3000, desc: 'Zero-overflow layout verification' },
                 { name: '⚡ Davis-Putnam SAT Solver Grind', xp: 175, time: 4000, desc: 'Empty clause refutation derivation' },
                 { name: '👑 Sovereign Passport Proof Crucible', xp: 240, time: 5000, desc: 'SHA-256 Merkle root invariant checks' }
               ].map((drill, idx) => (
@@ -1033,13 +1119,35 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                 </span>
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Turn-by-turn automated logic battles with Framer Motion sprite animations, logic attack projectiles, floating damage numbers and verifiable receipts.
+                Turn-by-turn automated logic battles in 3D Three.js WebGL with GLB Chibi Fighters, verifiable proof-of-work receipts, and zero random seeds.
               </p>
             </div>
           </div>
 
           {/* Battle Controls */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* 3D vs 2D Toggle */}
+            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-mono">
+              <button
+                onClick={() => setViewMode('3d')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-colors flex items-center gap-1 ${
+                  viewMode === '3d' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Box className="w-3.5 h-3.5" />
+                <span>3D WebGL</span>
+              </button>
+              <button
+                onClick={() => setViewMode('2d')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-colors flex items-center gap-1 ${
+                  viewMode === '2d' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>2D Sprites</span>
+              </button>
+            </div>
+
             {/* Speed Toggle */}
             <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-mono">
               <span className="text-[10px] text-slate-400 px-1.5">Speed:</span>
@@ -1077,7 +1185,7 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-lg shadow-amber-500/20 transition-all min-h-[40px]"
               >
                 <Play className="w-4 h-4 fill-slate-950" />
-                <span>Start Auto-Battle</span>
+                <span>Start 3D Auto-Battle</span>
               </button>
             ) : (
               <button
@@ -1091,256 +1199,141 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
           </div>
         </div>
 
-        {/* 2D ARENA BATTLEGROUND VIEWPORT */}
-        <motion.div
-          animate={screenShake ? { x: [0, -8, 8, -6, 6, 0] } : {}}
-          transition={{ duration: 0.3 }}
-          className="relative w-full h-80 sm:h-96 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 rounded-2xl border border-slate-800 overflow-hidden flex flex-col justify-between p-4 sm:p-6 select-none"
-        >
-          {/* Floating Numbers Layer using Framer Motion */}
-          <div className="absolute inset-0 pointer-events-none z-30">
+        {/* 3D ARENA VIEWPORT (THREE.JS WEBGL) */}
+        {viewMode === '3d' ? (
+          <div className="relative">
+            <ArenaViewport
+              heroName={hero.name}
+              heroClass={hero.className}
+              heroLevel={hero.level}
+              heroScale={dynamicHeroScale}
+              selectedModel3D={selectedModel3D}
+              opponentName={currentOpponent.name}
+              opponentModelId={currentOpponent.model_id}
+              currentTurnData={currentCombatTurnData}
+              isCombatActive={battleActive}
+              heroStats={heroCombatStats}
+              opponentStats={opponentCombatStats}
+            />
+
+            {/* Victory / Defeat Modal Overlay */}
             <AnimatePresence>
-              {floatingTexts.map(ft => (
+              {combatWinner && (
                 <motion.div
-                  key={ft.id}
-                  initial={{ opacity: 0, y: 0, scale: 0.6 }}
-                  animate={{ opacity: 1, y: -45, scale: 1.15 }}
-                  exit={{ opacity: 0, y: -70, scale: 0.8 }}
-                  transition={{ duration: 0.9, ease: 'easeOut' }}
-                  style={{ left: `${ft.x}%`, top: `${ft.y}%` }}
-                  className={`absolute font-mono font-black text-sm sm:text-base drop-shadow-md whitespace-nowrap ${
-                    ft.type === 'crit'
-                      ? 'text-amber-300 text-lg sm:text-xl scale-110'
-                      : ft.type === 'damage_hero'
-                      ? 'text-rose-400'
-                      : ft.type === 'damage_enemy'
-                      ? 'text-emerald-400'
-                      : 'text-indigo-300'
-                  }`}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-40 rounded-2xl"
                 >
-                  {ft.text}
+                  <div className="p-5 bg-gradient-to-br from-amber-500/20 to-yellow-500/10 border border-amber-500/50 rounded-2xl max-w-md w-full space-y-3 shadow-2xl">
+                    <div className="text-4xl">
+                      {combatWinner === 'hero' ? '🏆' : '💀'}
+                    </div>
+                    <h4 className="text-xl font-black font-mono text-slate-100">
+                      {combatWinner === 'hero' ? '3D VICTORY ACHIEVED!' : 'CHALLENGE REPELLED!'}
+                    </h4>
+                    <p className="text-xs text-slate-300 font-mono">
+                      {combatWinner === 'hero'
+                        ? `Your Chibi Fighter deposed the opponent with pure deterministic proof-of-work derivation!`
+                        : `The opponent defended their claim. Gain consolation experience and refine your invariants!`}
+                    </p>
+
+                    {lastReceiptHash && (
+                      <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 text-[11px] font-mono text-amber-300 flex items-center justify-between">
+                        <span className="text-slate-500">POW Receipt:</span>
+                        <span className="font-bold truncate max-w-[220px]">{lastReceiptHash}</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-center gap-2 pt-2">
+                      <button
+                        onClick={startBattle}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black rounded-xl transition-colors min-h-[40px]"
+                      >
+                        Battle Again
+                      </button>
+                      <button
+                        onClick={() => setCombatWinner(null)}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-colors min-h-[40px]"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
                 </motion.div>
-              ))}
+              )}
             </AnimatePresence>
           </div>
-
-          {/* Logic Attack Projectile Layer using Framer Motion */}
-          <AnimatePresence>
-            {projectileEffect && projectileEffect.type === 'hero_slash' && (
-              <motion.div
-                initial={{ x: '25%', y: '50%', opacity: 0, scale: 0.5 }}
-                animate={{ x: '75%', y: '50%', opacity: 1, scale: 1.4 }}
-                exit={{ opacity: 0, scale: 1.8 }}
-                transition={{ duration: 0.35, ease: 'easeInOut' }}
-                className="absolute text-3xl pointer-events-none z-25 text-amber-400 drop-shadow-lg"
-              >
-                ⚔️⚡
-              </motion.div>
-            )}
-            {projectileEffect && projectileEffect.type === 'enemy_strike' && (
-              <motion.div
-                initial={{ x: '75%', y: '50%', opacity: 0, scale: 0.5 }}
-                animate={{ x: '25%', y: '50%', opacity: 1, scale: 1.4 }}
-                exit={{ opacity: 0, scale: 1.8 }}
-                transition={{ duration: 0.35, ease: 'easeInOut' }}
-                className="absolute text-3xl pointer-events-none z-25 text-rose-400 drop-shadow-lg"
-              >
-                🔥🔮
-              </motion.div>
-            )}
-            {projectileEffect && projectileEffect.type === 'ultimate_burst' && (
-              <motion.div
-                initial={{ x: '30%', y: '50%', opacity: 0, scale: 0.8 }}
-                animate={{ x: '75%', y: '50%', opacity: 1, scale: 2.2, rotate: 360 }}
-                exit={{ opacity: 0, scale: 3.0 }}
-                transition={{ duration: 0.45, ease: 'easeOut' }}
-                className="absolute text-4xl pointer-events-none z-25 text-cyan-300 drop-shadow-2xl"
-              >
-                🌌✨
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Top HUD: Health & Energy Bars */}
-          <div className="grid grid-cols-2 gap-4 sm:gap-8 z-20">
-            {/* Hero Health & Energy Meter */}
-            <div className="space-y-1.5 font-mono">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-100 truncate">{hero.name} (Lv.{hero.level})</span>
-                <span className="text-emerald-400 font-bold">
-                  {heroCombatant ? heroCombatant.currentHp : heroStats.maxHp} / {heroStats.maxHp} HP
-                </span>
-              </div>
-              <div className="w-full h-3.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
-                <div
-                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${heroCombatant ? (heroCombatant.currentHp / heroCombatant.maxHp) * 100 : 100}%`
-                  }}
-                />
+        ) : (
+          /* 2D SPRITE ARENA VIEWPORT (ALTERNATIVE) */
+          <div className="relative w-full h-80 sm:h-96 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 rounded-2xl border border-slate-800 overflow-hidden flex flex-col justify-between p-4 sm:p-6 select-none">
+            {/* Top HUD */}
+            <div className="grid grid-cols-2 gap-6 z-20 font-mono text-xs">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-amber-300">{hero.name} (Lv.{hero.level})</span>
+                  <span className="text-amber-400 font-bold">
+                    HP: {currentCombatTurnData ? currentCombatTurnData.heroHpRemaining : heroCombatStats.currentHp} / {heroCombatStats.maxHp}
+                  </span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 to-amber-400 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, (currentCombatTurnData ? currentCombatTurnData.heroHpRemaining : heroCombatStats.currentHp) / heroCombatStats.maxHp * 100))}%`
+                    }}
+                  />
+                </div>
               </div>
 
-              {/* Energy / Burst Bar */}
-              <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-                <div
-                  className="h-full bg-gradient-to-r from-cyan-500 to-blue-400 rounded-full transition-all duration-300"
-                  style={{ width: `${heroCombatant ? heroCombatant.currentEnergy : 20}%` }}
-                />
+              <div className="space-y-1 text-right">
+                <div className="flex items-center justify-between">
+                  <span className="text-rose-400 font-bold">
+                    HP: {currentCombatTurnData ? currentCombatTurnData.opponentHpRemaining : opponentCombatStats.currentHp} / {opponentCombatStats.maxHp}
+                  </span>
+                  <span className="font-bold text-rose-300">{currentOpponent.name.split(' ')[0]}</span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
+                  <div
+                    className="h-full bg-gradient-to-r from-rose-500 to-amber-500 rounded-full transition-all duration-300 ml-auto"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, (currentCombatTurnData ? currentCombatTurnData.opponentHpRemaining : opponentCombatStats.currentHp) / opponentCombatStats.maxHp * 100))}%`
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Boss / Opponent Health & Energy Meter */}
-            <div className="space-y-1.5 font-mono text-right">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-rose-400 font-bold">
-                  {enemyCombatant ? enemyCombatant.currentHp : 550} / {enemyCombatant?.maxHp || 550} HP
-                </span>
-                <span className="font-bold text-slate-100 truncate">{currentOpponent.name}</span>
-              </div>
-              <div className="w-full h-3.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
-                <div
-                  className="h-full bg-gradient-to-r from-rose-500 to-amber-500 rounded-full transition-all duration-300 ml-auto"
-                  style={{
-                    width: `${enemyCombatant ? (enemyCombatant.currentHp / enemyCombatant.maxHp) * 100 : 100}%`
-                  }}
-                />
-              </div>
-
-              {/* Boss Energy Bar */}
-              <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-                <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-orange-400 rounded-full transition-all duration-300 ml-auto"
-                  style={{ width: `${enemyCombatant ? enemyCombatant.currentEnergy : 10}%` }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Central Combat Visualizer Stage with Framer Motion Sprites */}
-          <div className="relative flex items-center justify-between px-8 sm:px-16 my-auto z-10">
-            {/* HERO COMBATANT SPRITE */}
-            <div className="flex flex-col items-center">
-              <motion.div
-                animate={
-                  heroAnim === 'attack'
-                    ? { x: [0, 85, 0], scale: [dynamicHeroScale, dynamicHeroScale * 1.25, dynamicHeroScale], rotate: [0, 15, 0] }
-                    : heroAnim === 'ultimate'
-                    ? { scale: [dynamicHeroScale, dynamicHeroScale * 1.5, dynamicHeroScale * 1.2], rotate: [0, -10, 10, 0] }
-                    : heroAnim === 'hit'
-                    ? { x: [0, -20, 20, -10, 0], opacity: [1, 0.6, 1] }
-                    : { scale: dynamicHeroScale, y: [0, -3, 0] }
-                }
-                transition={
-                  heroAnim === 'idle'
-                    ? { repeat: Infinity, duration: 2.2, ease: 'easeInOut' }
-                    : { duration: 0.4 }
-                }
-                className="relative cursor-pointer"
-              >
-                {/* Visual Aura */}
-                <div className={`absolute -inset-2 rounded-full bg-gradient-to-tr ${tierInfo.auraColor} opacity-30 blur-md pointer-events-none`} />
-
-                {/* Main Hero Sprite Tile */}
-                <div className={`w-20 h-20 sm:w-24 sm:h-24 rounded-2xl flex items-center justify-center text-4xl sm:text-5xl shadow-2xl bg-gradient-to-br from-slate-800 via-slate-900 to-black ${tierInfo.glowClass}`}>
+            {/* Sprites */}
+            <div className="flex items-center justify-between px-12 my-auto z-10">
+              <div className="flex flex-col items-center">
+                <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-4xl shadow-xl bg-slate-900 border-2 border-amber-500">
                   {hero.className === 'paladin' ? '🛡️' : hero.className === 'archmage' ? '🔮' : hero.className === 'assassin' ? '🗡️' : '🪓'}
                 </div>
-              </motion.div>
-              <span className="mt-2 text-xs font-mono font-black text-amber-300">
-                {hero.name}
-              </span>
-            </div>
-
-            {/* VS Emblem / Ultimate Indicator */}
-            <div className="text-center font-mono">
-              <div className="w-12 h-12 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-xs font-black text-amber-400 shadow-inner">
-                VS
+                <span className="mt-2 text-xs font-mono font-bold text-amber-300">{hero.name}</span>
               </div>
-              <span className="text-[10px] text-slate-500 block mt-1">Turn #{battleTurn}</span>
-            </div>
 
-            {/* BOSS / OPPONENT COMBATANT SPRITE */}
-            <div className="flex flex-col items-center">
-              <motion.div
-                animate={
-                  enemyAnim === 'attack'
-                    ? { x: [0, -85, 0], scale: [1, 1.25, 1], rotate: [0, -15, 0] }
-                    : enemyAnim === 'ultimate'
-                    ? { scale: [1, 1.5, 1.2], rotate: [0, 10, -10, 0] }
-                    : enemyAnim === 'hit'
-                    ? { x: [0, 20, -20, 10, 0], opacity: [1, 0.6, 1] }
-                    : { y: [0, -3, 0] }
-                }
-                transition={
-                  enemyAnim === 'idle'
-                    ? { repeat: Infinity, duration: 2.2, ease: 'easeInOut' }
-                    : { duration: 0.4 }
-                }
-                className="relative"
-              >
-                <div className="absolute -inset-2 rounded-full bg-rose-500/20 blur-md pointer-events-none" />
-                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl flex items-center justify-center text-4xl sm:text-5xl shadow-2xl bg-gradient-to-br from-rose-950 via-slate-900 to-black border-2 border-rose-500/60 shadow-rose-500/20">
-                  {selectedOpponentIdx === 0 ? '👑' : selectedOpponentIdx === 1 ? '⚡' : selectedOpponentIdx === 2 ? '🤖' : '🐉'}
+              <div className="text-center font-mono">
+                <div className="w-10 h-10 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-xs font-black text-amber-400">
+                  VS
                 </div>
-              </motion.div>
-              <span className="mt-2 text-xs font-mono font-black text-rose-400">
-                {currentOpponent.name.split(' ')[0]}
-              </span>
+                <span className="text-[10px] text-slate-500 mt-1 block">T#{battleTurn}</span>
+              </div>
+
+              <div className="flex flex-col items-center">
+                <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-4xl shadow-xl bg-slate-900 border-2 border-rose-500">
+                  👑
+                </div>
+                <span className="mt-2 text-xs font-mono font-bold text-rose-300">{currentOpponent.name.split(' ')[0]}</span>
+              </div>
             </div>
           </div>
-
-          {/* Victory / Defeat Modal Overlay */}
-          <AnimatePresence>
-            {combatWinner && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-40"
-              >
-                <div className="p-4 bg-gradient-to-br from-amber-500/20 to-yellow-500/10 border border-amber-500/50 rounded-2xl max-w-md w-full space-y-3 shadow-2xl">
-                  <div className="text-4xl">
-                    {combatWinner === 'hero' ? '🏆' : '💀'}
-                  </div>
-                  <h4 className="text-xl font-black font-mono text-slate-100">
-                    {combatWinner === 'hero' ? 'VICTORY ACHIEVED!' : 'CHALLENGE REPELLED!'}
-                  </h4>
-                  <p className="text-xs text-slate-300 font-mono">
-                    {combatWinner === 'hero'
-                      ? `Your hero deposed the opponent in ${battleTurn} turns with formal proof execution!`
-                      : `The opponent defended their claim. Gain consolation experience and refine your invariants!`}
-                  </p>
-
-                  {lastReceiptHash && (
-                    <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 text-[11px] font-mono text-amber-300 flex items-center justify-between">
-                      <span className="text-slate-500">Receipt:</span>
-                      <span className="font-bold">{lastReceiptHash}</span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-center gap-2 pt-2">
-                    <button
-                      onClick={startBattle}
-                      className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black rounded-xl transition-colors min-h-[40px]"
-                    >
-                      Battle Again
-                    </button>
-                    <button
-                      onClick={() => setCombatWinner(null)}
-                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-colors min-h-[40px]"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
+        )}
 
         {/* Live Auto-Battle Log Terminal */}
         <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-xs space-y-2 max-h-48 overflow-y-auto touch-scroll-y">
           <div className="flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800 pb-2">
-            <span className="font-bold text-amber-400">Combat Feed Terminal</span>
+            <span className="font-bold text-amber-400">Combat Feed Terminal (Proof-of-Work Log)</span>
             <span>{battleLogs.length} events logged</span>
           </div>
 
@@ -1374,6 +1367,33 @@ export const RpgAutoBattler: React.FC<RpgAutoBattlerProps> = ({ onExportToHf, av
           </div>
         </div>
       </div>
+
+      {/* 📋 REAL-TIME MATCH QUEUE & DETERMINISTIC SIMULATION VISUALIZER */}
+      <MatchQueueVisualizer
+        unlockedFighters={DEFAULT_3D_CHIBI_MODELS}
+        heroLevel={hero.level}
+        onLoadMatchInto3D={handleLoadQueueMatchInto3D}
+      />
+
+      {/* 3D Model Selector Modal */}
+      <Model3DSelectorModal
+        isOpen={modelSelectorOpen}
+        onClose={() => setModelSelectorOpen(false)}
+        selectedModelId={selectedModel3D?.id || 'chibi_paladin_aegis'}
+        onSelectModel={(model) => {
+          setSelectedModel3D(model);
+          saveHero({ ...hero, selectedModel3DId: model.id });
+        }}
+      />
+
+      {/* Honor Medals Vault Modal */}
+      <HonorMedalsVaultModal
+        isOpen={medalsModalOpen}
+        onClose={() => setMedalsModalOpen(false)}
+        hero={hero}
+        claimedMilestoneIds={hero.claimedMilestoneIds || []}
+        onClaimMilestone={handleClaimMilestone}
+      />
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, Terminal, Cpu } from 'lucide-react';
+import { X, Copy, Check, Terminal, Cpu, Globe, CheckCircle2 } from 'lucide-react';
 
 interface McpConfigModalProps {
   isOpen: boolean;
@@ -9,17 +9,21 @@ interface McpConfigModalProps {
 export const McpConfigModal: React.FC<McpConfigModalProps> = ({ isOpen, onClose }) => {
   const [copiedTab, setCopiedTab] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'claude' | 'cursor' | 'python' | 'node'>('claude');
+  const [useLiveDomain, setUseLiveDomain] = useState<boolean>(true);
 
   if (!isOpen) return null;
 
-  const appUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+  const liveDomain = 'https://aredatasetarenahugginface.ai.studio';
+  const localDomain = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+  const appUrl = useLiveDomain ? liveDomain : localDomain;
+  const mcpEndpoint = `${appUrl}/api/mcp`;
 
   const configs = {
     claude: JSON.stringify(
       {
         mcpServers: {
           "hf-datasets-studio": {
-            url: `${appUrl}/api/mcp`,
+            url: mcpEndpoint,
             headers: {
               "Content-Type": "application/json"
             }
@@ -34,7 +38,7 @@ export const McpConfigModal: React.FC<McpConfigModalProps> = ({ isOpen, onClose 
         mcpServers: {
           "hf-datasets-studio": {
             command: "node",
-            args: ["-e", `fetch('${appUrl}/api/mcp', {method:'POST', body: JSON.stringify({jsonrpc:'2.0', id:1, method:'tools/list'})})`]
+            args: ["-e", `fetch('${mcpEndpoint}', {method:'POST', body: JSON.stringify({jsonrpc:'2.0', id:1, method:'tools/list'})})`]
           }
         }
       },
@@ -43,7 +47,7 @@ export const McpConfigModal: React.FC<McpConfigModalProps> = ({ isOpen, onClose 
     ),
     python: `import requests
 
-mcp_url = "${appUrl}/api/mcp"
+mcp_url = "${mcpEndpoint}"
 
 # List tools from Hugging Face MCP Server
 response = requests.post(
@@ -66,7 +70,7 @@ search_res = requests.post(
     }
 )
 print("Datasets found:", search_res.json()["result"]["content"][0]["text"])`,
-    node: `const response = await fetch("${appUrl}/api/mcp", {
+    node: `const response = await fetch("${mcpEndpoint}", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -92,25 +96,60 @@ console.log(data.result.content[0].text);`
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl">
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
           <div className="flex items-center gap-2">
             <Cpu className="w-5 h-5 text-amber-400" />
-            <h3 className="text-base font-semibold text-slate-100">MCP Server Integration Kit</h3>
+            <div>
+              <h3 className="text-base font-semibold text-slate-100">MCP Server Integration Kit</h3>
+              <p className="text-xs text-slate-400">Connect Cursor, Claude Desktop, Python or Node to HF MCP Server</p>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-200 transition-colors p-1 rounded-lg hover:bg-slate-800"
+            className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="p-6 space-y-4">
-          <p className="text-sm text-slate-400">
-            Connect your local AI assistant, IDE, or automated workflow agent directly to this Hugging Face MCP server.
-          </p>
+          {/* Domain Target Switcher */}
+          <div className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-amber-400" />
+              <span className="text-slate-300 font-medium">Target MCP Domain:</span>
+              <code className="text-amber-300 font-mono font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                {mcpEndpoint}
+              </code>
+            </div>
 
-          <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setUseLiveDomain(true)}
+                className={`px-2.5 py-1 rounded-lg font-mono text-[11px] transition-colors ${
+                  useLiveDomain
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Production URL
+              </button>
+              <button
+                onClick={() => setUseLiveDomain(false)}
+                className={`px-2.5 py-1 rounded-lg font-mono text-[11px] transition-colors ${
+                  !useLiveDomain
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Local URL
+              </button>
+            </div>
+          </div>
+
+          {/* Client Tab Switcher */}
+          <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
             <button
               onClick={() => setActiveTab('claude')}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
@@ -175,11 +214,12 @@ console.log(data.result.content[0].text);`
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-slate-500 pt-2 border-t border-slate-800">
-            <Terminal className="w-4 h-4 text-slate-400" />
-            <span>Endpoint: <code className="text-slate-300 font-mono">{appUrl}/api/mcp</code></span>
-            <span aria-hidden="true">·</span>
-            <span>Protocol: JSON-RPC 2.0</span>
+          <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-slate-400" />
+              <span>Correct Live Endpoint: <code className="text-amber-300 font-mono font-bold">https://aredatasetarenahugginface.ai.studio/api/mcp</code></span>
+            </div>
+            <span>JSON-RPC 2.0</span>
           </div>
         </div>
       </div>

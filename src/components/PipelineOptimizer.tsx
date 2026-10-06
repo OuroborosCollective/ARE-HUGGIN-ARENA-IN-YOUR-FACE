@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, ArrowRight, Play, Pause, CheckCircle2, ShieldCheck, Layers, FileCode, Cpu, BarChart, Download, RefreshCw, Tag, Zap, Activity, UploadCloud, ExternalLink, ListPlus, Trash2, RotateCcw, Clock, AlertTriangle, ChevronDown, ChevronUp, Check, Eye } from 'lucide-react';
 import { AutoTaggingModal } from './AutoTaggingModal';
+import { BatchProgressBoard } from './BatchProgressBoard';
+import { BatchQueueModal } from './BatchQueueModal';
 
 export interface BulkJob {
   id: string;
@@ -82,6 +84,7 @@ export const PipelineOptimizer: React.FC<PipelineOptimizerProps> = ({
   const [isQueueRunning, setIsQueueRunning] = useState(false);
   const [isQueuePaused, setIsQueuePaused] = useState(false);
   const [isQueueDrawerOpen, setIsQueueDrawerOpen] = useState(true);
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   // Ref to track running state without closure staleness
@@ -245,6 +248,65 @@ export const PipelineOptimizer: React.FC<PipelineOptimizerProps> = ({
     setIsQueueDrawerOpen(true);
   };
 
+  const handleEnqueueBatchList = (newJobs: BulkJob[]) => {
+    setJobs(prev => [...prev, ...newJobs]);
+  };
+
+  const handleRetryJob = (jobId: string) => {
+    setJobs(prev => prev.map(j => j.id === jobId ? {
+      ...j,
+      status: 'queued',
+      progressPct: 0,
+      stageName: 'Pending in Queue',
+      error: undefined
+    } : j));
+    if (!isRunningRef.current) {
+      startQueueProcessing();
+    }
+  };
+
+  const handleRetryAllFailed = () => {
+    setJobs(prev => prev.map(j => j.status === 'failed' ? {
+      ...j,
+      status: 'queued',
+      progressPct: 0,
+      stageName: 'Pending in Queue',
+      error: undefined
+    } : j));
+    if (!isRunningRef.current) {
+      startQueueProcessing();
+    }
+  };
+
+  const handleExportJobToHf = (job: BulkJob) => {
+    if (!onExportToHf || !job.result) return;
+    onExportToHf(
+      'pipeline_optimization',
+      `Transformed Dataset: ${job.datasetId} (${job.targetFormat.toUpperCase()})`,
+      job.result,
+      job.datasetId
+    );
+  };
+
+  const handleExportAllCompleted = () => {
+    if (!onExportToHf) return;
+    const completed = jobs.filter(j => j.status === 'completed' && j.result);
+    if (completed.length === 0) return;
+    onExportToHf(
+      'pipeline_optimization',
+      `Batch Transformation Pack (${completed.length} Datasets)`,
+      {
+        total_jobs: completed.length,
+        jobs: completed.map(j => ({
+          dataset_id: j.datasetId,
+          target_format: j.targetFormat,
+          result: j.result
+        }))
+      },
+      completed[0]?.datasetId
+    );
+  };
+
   const handleRemoveJob = (jobId: string) => {
     setJobs(prev => prev.filter(j => j.id !== jobId));
   };
@@ -392,296 +454,32 @@ export const PipelineOptimizer: React.FC<PipelineOptimizerProps> = ({
   return (
     <div className="space-y-6">
       {/* ============================================================= */}
-      {/* GLOBAL BULK PROCESSING STATUS BAR (STICKY COMMAND CENTER) */}
+      {/* REAL-TIME BATCH PROCESSING PROGRESS BOARD */}
       {/* ============================================================= */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3 sticky top-16 z-20 backdrop-blur-md bg-slate-900/95">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl border flex items-center justify-center shrink-0 ${
-              isQueueRunning
-                ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
-                : 'bg-slate-950 border-slate-800 text-slate-400'
-            }`}>
-              <Layers className="w-5 h-5" />
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
-                  <span>Bulk Processing Queue</span>
-                </span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider ${
-                  isQueueRunning && !isQueuePaused
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
-                    : isQueuePaused
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                    : completedJobsCount === totalJobsCount && totalJobsCount > 0
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'bg-slate-800 text-slate-400'
-                }`}>
-                  {isQueueRunning && !isQueuePaused
-                    ? 'Processing Live'
-                    : isQueuePaused
-                    ? 'Queue Paused'
-                    : completedJobsCount === totalJobsCount && totalJobsCount > 0
-                    ? 'All Jobs Finished'
-                    : 'Queue Ready'}
-                </span>
-
-                <span className="text-xs font-mono text-slate-400">
-                  {completedJobsCount} / {totalJobsCount} Jobs Completed ({overallProgressPct}%)
-                </span>
-              </div>
-
-              {activeJob ? (
-                <p className="text-xs text-amber-300/90 font-mono mt-0.5 truncate max-w-xl flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
-                  <span>Active: <strong>{activeJob.datasetId.split('/').pop()}</strong> ({activeJob.targetFormat.toUpperCase()}) — {activeJob.stageName} ({activeJob.progressPct}%)</span>
-                </p>
-              ) : (
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Enqueue transformation jobs across multiple schemas or datasets and run them in batch.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Queue Runner Controls */}
-          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-            {!isQueueRunning || isQueuePaused ? (
-              <button
-                onClick={isQueuePaused ? handleResumeQueue : startQueueProcessing}
-                disabled={totalJobsCount === 0 || completedJobsCount === totalJobsCount}
-                className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 disabled:opacity-50 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-md shadow-amber-500/15 flex items-center gap-1.5 min-h-[44px]"
-              >
-                <Play className="w-4 h-4 fill-current" />
-                <span>{isQueuePaused ? 'Resume Queue' : 'Start Bulk Queue'}</span>
-              </button>
-            ) : (
-              <button
-                onClick={handlePauseQueue}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl border border-slate-700 transition-colors flex items-center gap-1.5 min-h-[44px]"
-              >
-                <Pause className="w-4 h-4 fill-current" />
-                <span>Pause Queue</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => setIsQueueDrawerOpen(prev => !prev)}
-              className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs font-semibold rounded-xl border border-slate-800 transition-colors flex items-center gap-1 min-h-[44px]"
-            >
-              <span>Jobs ({totalJobsCount})</span>
-              {isQueueDrawerOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Global Overall Progress Bar */}
-        <div className="space-y-1.5">
-          <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
-            <div
-              className={`h-full rounded-full transition-all duration-300 relative overflow-hidden ${
-                overallProgressPct === 100
-                  ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-                  : 'bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-400'
-              }`}
-              style={{ width: `${Math.max(overallProgressPct, totalJobsCount > 0 ? 3 : 0)}%` }}
-            >
-              {isQueueRunning && !isQueuePaused && (
-                <div className="absolute inset-0 bg-white/20 animate-pulse" />
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>
-              Queue Status: {pendingJobsCount} Pending · {completedJobsCount} Succeeded · {failedJobsCount} Failed
-            </span>
-            <span>
-              Total Processed: {jobs.reduce((acc, j) => acc + (j.processedRows || 0), 0).toLocaleString()} rows
-            </span>
-          </div>
-        </div>
-
-        {/* Expandable Queue Drawer */}
-        {isQueueDrawerOpen && (
-          <div className="pt-3 border-t border-slate-800/80 space-y-3 animate-in fade-in duration-150">
-            {/* Quick Enqueue Batch Presets */}
-            <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
-              <span className="text-slate-400 font-mono text-[11px] uppercase tracking-wider font-bold">
-                Quick Enqueue Presets:
-              </span>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <button
-                  onClick={handleEnqueueCurrent}
-                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-semibold border border-slate-700 transition-colors flex items-center gap-1 min-h-[36px]"
-                >
-                  <ListPlus className="w-3.5 h-3.5" />
-                  <span>+ Enqueue Current Config</span>
-                </button>
-
-                <button
-                  onClick={handleEnqueueMultiFormatMatrix}
-                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition-colors flex items-center gap-1 min-h-[36px]"
-                >
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  <span>+ 4-Schema Matrix Batch</span>
-                </button>
-
-                <button
-                  onClick={handleEnqueueAllDatasetsBatch}
-                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition-colors flex items-center gap-1 min-h-[36px]"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                  <span>+ 4 Premier Datasets Batch</span>
-                </button>
-
-                {completedJobsCount > 0 && (
-                  <button
-                    onClick={handleClearCompleted}
-                    className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-lg text-xs border border-slate-800 transition-colors min-h-[36px]"
-                  >
-                    Clear Completed
-                  </button>
-                )}
-
-                {totalJobsCount > 0 && (
-                  <button
-                    onClick={handleClearAll}
-                    className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
-                    title="Clear All Jobs"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Jobs Card List */}
-            {jobs.length === 0 ? (
-              <div className="p-6 text-center text-slate-500 text-xs bg-slate-950 rounded-xl border border-slate-800">
-                Queue is empty. Click "+ Enqueue Current Config" or one of the batch presets above to schedule transformations.
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-72 overflow-y-auto touch-scroll-y pr-1">
-                {jobs.map((job, idx) => {
-                  const isProcessing = job.status === 'processing';
-                  const isDone = job.status === 'completed';
-                  const isFailed = job.status === 'failed';
-
-                  return (
-                    <div
-                      key={job.id}
-                      className={`p-3 rounded-xl border transition-all text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                        isProcessing
-                          ? 'bg-slate-950 border-amber-500/60 shadow-md shadow-amber-500/5'
-                          : isDone
-                          ? 'bg-slate-950/80 border-emerald-500/30'
-                          : isFailed
-                          ? 'bg-rose-950/20 border-rose-500/40'
-                          : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <span className={`w-7 h-7 rounded-lg font-mono font-bold text-xs flex items-center justify-center shrink-0 border ${
-                          isProcessing
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            : isDone
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                            : 'bg-slate-900 text-slate-400 border-slate-800'
-                        }`}>
-                          #{idx + 1}
-                        </span>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-slate-200 truncate">
-                              {job.datasetId}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] text-amber-400 font-semibold uppercase">
-                              {job.targetFormat}
-                            </span>
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
-                              isDone
-                                ? 'bg-emerald-500/10 text-emerald-400'
-                                : isProcessing
-                                ? 'bg-amber-500/10 text-amber-400 animate-pulse'
-                                : isFailed
-                                ? 'bg-rose-500/10 text-rose-400'
-                                : 'bg-slate-800 text-slate-400'
-                            }`}>
-                              {job.status}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400 mt-1">
-                            <span>{job.stageName}</span>
-                            {job.durationMs && <span>· {(job.durationMs / 1000).toFixed(1)}s</span>}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Mini Job Progress Bar & Actions */}
-                      <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                        {isProcessing && (
-                          <div className="w-24 h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                            <div
-                              className="h-full bg-amber-400 rounded-full transition-all duration-300"
-                              style={{ width: `${job.progressPct}%` }}
-                            />
-                          </div>
-                        )}
-
-                        {job.result && (
-                          <button
-                            onClick={() => {
-                              setPipelineOutput(job.result);
-                              setDatasetId(job.datasetId);
-                              setTargetFormat(job.targetFormat);
-                            }}
-                            className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-semibold border border-slate-700 transition-colors flex items-center gap-1 min-h-[36px]"
-                            title="Inspect Job Output"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Inspect</span>
-                          </button>
-                        )}
-
-                        {job.result && onExportToHf && (
-                          <button
-                            onClick={() => onExportToHf(
-                              'pipeline_optimization',
-                              `Transformed Split: ${job.datasetId} (${job.targetFormat})`,
-                              job.result,
-                              job.datasetId
-                            )}
-                            className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 min-h-[36px]"
-                            title="Export to Hugging Face"
-                          >
-                            <UploadCloud className="w-3.5 h-3.5" />
-                            <span>Export</span>
-                          </button>
-                        )}
-
-                        {!isProcessing && (
-                          <button
-                            onClick={() => handleRemoveJob(job.id)}
-                            className="p-1.5 text-slate-500 hover:text-slate-300 rounded-lg hover:bg-slate-800 min-h-[36px] min-w-[36px] flex items-center justify-center"
-                            title="Remove from queue"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <BatchProgressBoard
+        jobs={jobs}
+        isQueueRunning={isQueueRunning}
+        isQueuePaused={isQueuePaused}
+        activeJobId={activeJobId}
+        onStartQueue={startQueueProcessing}
+        onPauseQueue={handlePauseQueue}
+        onResumeQueue={handleResumeQueue}
+        onOpenBatchModal={() => setIsBatchModalOpen(true)}
+        onRemoveJob={handleRemoveJob}
+        onClearCompleted={handleClearCompleted}
+        onClearAll={handleClearAll}
+        onRetryJob={handleRetryJob}
+        onRetryAllFailed={handleRetryAllFailed}
+        onInspectResult={(job) => {
+          if (job.result) {
+            setPipelineOutput(job.result);
+            setDatasetId(job.datasetId);
+            setTargetFormat(job.targetFormat);
+          }
+        }}
+        onExportJobToHf={onExportToHf ? handleExportJobToHf : undefined}
+        onExportAllCompletedToHf={onExportToHf ? handleExportAllCompleted : undefined}
+      />
 
       {/* Visual Pipeline DAG Flow */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
@@ -1007,6 +805,13 @@ export const PipelineOptimizer: React.FC<PipelineOptimizerProps> = ({
         onClose={() => setIsTagModalOpen(false)}
         datasetId={datasetId}
         onExportToHf={onExportToHf}
+      />
+
+      {/* Batch Processing Queue Generator Modal */}
+      <BatchQueueModal
+        isOpen={isBatchModalOpen}
+        onClose={() => setIsBatchModalOpen(false)}
+        onEnqueueBatch={handleEnqueueBatchList}
       />
     </div>
   );

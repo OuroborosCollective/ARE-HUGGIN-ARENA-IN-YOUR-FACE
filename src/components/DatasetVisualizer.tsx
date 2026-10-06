@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, PieChart, Activity, Layers, Table, FileText, CheckCircle2, AlertTriangle, Sparkles, Filter, Search, GitCompare, UploadCloud, ExternalLink, Play, Radio, ChevronLeft, ChevronRight, RefreshCw, Copy, Check, ShieldCheck, Database, Grid } from 'lucide-react';
+import { BarChart3, PieChart, Activity, Layers, Table, FileText, CheckCircle2, AlertTriangle, Sparkles, Filter, Search, GitCompare, UploadCloud, ExternalLink, Play, Radio, ChevronLeft, ChevronRight, RefreshCw, Copy, Check, ShieldCheck, Database, Grid, BookmarkPlus, Camera, History } from 'lucide-react';
 import { DatasetDiffViewer } from './DatasetDiffViewer';
 import { DatasetHeatmap } from './DatasetHeatmap';
+import { DatasetSnapshotDiff } from './DatasetSnapshotDiff';
+import { DatasetHistorySidebar } from './DatasetHistorySidebar';
+import { useFirebaseAuth, DatasetSnapshotRecord } from '../context/FirebaseAuthContext';
 
 interface DatasetVisualizerProps {
   dataset: {
@@ -18,10 +21,46 @@ interface DatasetVisualizerProps {
 }
 
 export const DatasetVisualizer: React.FC<DatasetVisualizerProps> = ({ dataset, onExportToHf }) => {
-  const [activeVisualizerTab, setActiveVisualizerTab] = useState<'profile' | 'diff' | 'stream' | 'heatmap'>('profile');
+  const [activeVisualizerTab, setActiveVisualizerTab] = useState<'profile' | 'snapshot' | 'diff' | 'stream' | 'heatmap'>('profile');
   const [selectedColumn, setSelectedColumn] = useState<string>(dataset.features[0]?.name || 'text');
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState(false);
+
+  // History Sidebar state & selected snapshot
+  const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(true);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
+
+  // Firebase integration
+  const { user, saveDataset, connectedProjects } = useFirebaseAuth();
+  const [savedSuccess, setSavedSuccess] = useState(false);
+  const [isSavingDataset, setIsSavingDataset] = useState(false);
+
+  const handleSaveToAccount = async () => {
+    if (!user) {
+      alert('Please click Account in the top navigation to sign in and save datasets.');
+      return;
+    }
+    setIsSavingDataset(true);
+    try {
+      const defaultTarget = connectedProjects.find(p => p.isDefaultTarget)?.repoName || '';
+      await saveDataset({
+        datasetId: dataset.id,
+        name: dataset.name || dataset.id,
+        description: `${dataset.task} (${dataset.modality}), ${dataset.num_rows.toLocaleString()} rows`,
+        targetProject: defaultTarget,
+        format: 'parquet',
+        sampleCount: dataset.sample_rows.length,
+        tags: [dataset.task, dataset.modality],
+        learningData: JSON.stringify(dataset.sample_rows.slice(0, 50))
+      });
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (err: any) {
+      alert(`Failed to save dataset: ${err.message}`);
+    } finally {
+      setIsSavingDataset(false);
+    }
+  };
 
   // Streaming API state
   const [streamChunkIndex, setStreamChunkIndex] = useState(0);
@@ -141,6 +180,18 @@ export const DatasetVisualizer: React.FC<DatasetVisualizerProps> = ({ dataset, o
           </button>
 
           <button
+            onClick={() => setActiveVisualizerTab('snapshot')}
+            className={`px-3 sm:px-4 py-2 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap min-h-[44px] ${
+              activeVisualizerTab === 'snapshot'
+                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/10'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Camera className="w-3.5 h-3.5" />
+            <span>Dataset Snapshots & Diff</span>
+          </button>
+
+          <button
             onClick={() => setActiveVisualizerTab('diff')}
             className={`px-3 sm:px-4 py-2 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap min-h-[44px] ${
               activeVisualizerTab === 'diff'
@@ -175,6 +226,60 @@ export const DatasetVisualizer: React.FC<DatasetVisualizerProps> = ({ dataset, o
             <span>{copiedId ? 'Copied ID' : 'Copy ID'}</span>
           </button>
 
+          {/* Quick Snapshot Button */}
+          <button
+            onClick={() => setActiveVisualizerTab('snapshot')}
+            title="Capture point-in-time snapshot and run visual diff against Firestore"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors min-h-[40px] ${
+              activeVisualizerTab === 'snapshot'
+                ? 'bg-amber-500 text-slate-950 font-bold border-amber-400'
+                : 'bg-slate-950 hover:bg-slate-800 text-amber-300 border-slate-800'
+            }`}
+          >
+            <Camera className="w-3.5 h-3.5 text-amber-400" />
+            <span>Snapshots</span>
+          </button>
+
+          {/* Snapshot History Sidebar Toggle Button */}
+          {activeVisualizerTab === 'snapshot' && (
+            <button
+              onClick={() => setIsHistorySidebarOpen(prev => !prev)}
+              title={isHistorySidebarOpen ? 'Hide Firestore Snapshots Sidebar' : 'Show Firestore Snapshots Sidebar'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors min-h-[40px] ${
+                isHistorySidebarOpen
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : 'bg-slate-950 hover:bg-slate-800 text-slate-400 border-slate-800'
+              }`}
+            >
+              <History className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">{isHistorySidebarOpen ? 'Hide History' : 'History Sidebar'}</span>
+            </button>
+          )}
+
+          {/* Save Dataset to Firebase Account */}
+          <button
+            onClick={handleSaveToAccount}
+            disabled={isSavingDataset}
+            title="Save this dataset and samples to your personal Firebase cloud account"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition-all shadow-sm min-h-[40px] ${
+              savedSuccess
+                ? 'bg-emerald-500 text-slate-950'
+                : 'bg-slate-950 hover:bg-slate-800 text-amber-300 border border-slate-800'
+            }`}
+          >
+            {savedSuccess ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-slate-950" />
+                <span>Saved to Account!</span>
+              </>
+            ) : (
+              <>
+                <BookmarkPlus className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isSavingDataset ? 'Saving...' : 'Save to Account'}</span>
+              </>
+            )}
+          </button>
+
           {onExportToHf && (
             <button
               onClick={() => onExportToHf('dataset_diff', `Dataset Analytics & Distribution Profile: ${dataset.id}`, { dataset_id: dataset.id, avg_length: avgLength, min_length: minLength, max_length: maxLength, bins }, dataset.id)}
@@ -196,6 +301,30 @@ export const DatasetVisualizer: React.FC<DatasetVisualizerProps> = ({ dataset, o
           </a>
         </div>
       </div>
+
+      {/* SNAPSHOT & FIRESTORE VISUAL DIFF TAB WITH REAL HISTORY SIDEBAR */}
+      {activeVisualizerTab === 'snapshot' && (
+        <div className="flex flex-col lg:flex-row items-start gap-6">
+          {/* History Sidebar */}
+          <DatasetHistorySidebar
+            currentDataset={dataset}
+            selectedSnapshotId={selectedSnapshotId}
+            onSelectSnapshot={(snapshot) => setSelectedSnapshotId(snapshot.id)}
+            isOpen={isHistorySidebarOpen}
+            onToggle={() => setIsHistorySidebarOpen(prev => !prev)}
+          />
+
+          {/* Main Visual Diff Engine */}
+          <div className="flex-1 min-w-0 w-full">
+            <DatasetSnapshotDiff
+              currentDataset={dataset}
+              selectedSnapshotId={selectedSnapshotId}
+              onSelectSnapshot={(snapshot) => setSelectedSnapshotId(snapshot.id)}
+              onExportToHf={onExportToHf}
+            />
+          </div>
+        </div>
+      )}
 
       {/* DIFF VIEWER TAB */}
       {activeVisualizerTab === 'diff' && (

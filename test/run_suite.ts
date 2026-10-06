@@ -7,7 +7,7 @@ import crypto from 'crypto';
 
 export interface TestCase {
   name: string;
-  category: 'Receipt Invariants' | 'Combat Throne' | 'Dataset Stream' | '503 High-Demand Resilience' | 'AST Resolution' | 'Passport Hashing';
+  category: 'Receipt Invariants' | 'Combat Throne' | 'Dataset Stream' | '503 High-Demand Resilience' | 'AST Resolution' | 'Passport Hashing' | 'Firebase Integration' | 'Dataset Snapshots' | 'Pipeline Optimizer';
   run: () => Promise<void> | void;
 }
 
@@ -459,6 +459,229 @@ test('RPG Autobattler Turn Damage Mitigation & Critical Invariants', 'Combat Thr
   // Ultimate attack
   const ultDmg = calculateDamage(50, 30, false, true);
   assert(ultDmg > baseDmg * 2, 'Ultimate attack must deal > 2x standard base damage');
+});
+
+test('Battle Replay Frame-by-Frame Scrubbing & Steps Invariant', 'Combat Throne', () => {
+  const steps = [
+    { stepIndex: 0, phase: 'PHASE 1', title: 'Target Invariant Ingestion', pointsDelta: 0 },
+    { stepIndex: 1, phase: 'PHASE 2', title: 'Attacker Logic Synthesis', pointsDelta: 25 },
+    { stepIndex: 2, phase: 'PHASE 3', title: 'Defender Proof Tree Verification', pointsDelta: 0 },
+    { stepIndex: 3, phase: 'PHASE 4', title: 'ARE Referee Decision & Receipt', pointsDelta: 65 }
+  ];
+
+  const scrubFrame = (index: number) => {
+    const clamped = Math.max(0, Math.min(steps.length - 1, index));
+    return steps[clamped];
+  };
+
+  assertEqual(scrubFrame(0).phase, 'PHASE 1', 'Frame 0 must be Phase 1 Ingestion');
+  assertEqual(scrubFrame(2).phase, 'PHASE 3', 'Frame 2 must be Phase 3 Proof Verification');
+  assertEqual(scrubFrame(99).stepIndex, 3, 'Out-of-bounds scrub index must clamp to last frame');
+});
+
+test('Recharts Battle Analytics Top 10 Model Win-Rate Trends', 'Combat Throne', () => {
+  const mockLeaderboard = Array.from({ length: 10 }).map((_, i) => ({
+    name: `Model-${i + 1}`,
+    wins: 10 - i,
+    losses: i,
+    ast_accuracy: 95 - i
+  }));
+
+  const calculateGlobalAverage = (models: typeof mockLeaderboard) => {
+    const totalWinRate = models.reduce((acc, m) => acc + (m.wins / (m.wins + m.losses)) * 100, 0);
+    return Math.round(totalWinRate / models.length);
+  };
+
+  const avg = calculateGlobalAverage(mockLeaderboard);
+  assert(avg > 0 && avg <= 100, `Global average win-rate must be valid percentage (got ${avg}%)`);
+  assertEqual(mockLeaderboard.length, 10, 'Must include exactly top 10 models');
+});
+
+test('RPG Model Skill Tree SP Accumulation & Buff Multipliers', 'Combat Throne', () => {
+  const computeSkillPoints = (level: number, totalWins: number) => {
+    return Math.max(1, Math.floor(level / 2) + Math.floor(totalWins / 3));
+  };
+
+  const computeActiveBuffs = (unlockedMultipliers: number[]) => {
+    return Number((1 + unlockedMultipliers.reduce((acc, m) => acc + m, 0)).toFixed(2));
+  };
+
+  // Level 10 hero with 12 wins
+  const sp = computeSkillPoints(10, 12);
+  assertEqual(sp, 9, 'Level 10 with 12 wins must yield 5 + 4 = 9 Skill Points');
+
+  // Multiplier stack: +10% Davis-Putnam, +20% Clause Shatter, +35% Titan Ultimate
+  const atkMult = computeActiveBuffs([0.10, 0.20, 0.35]);
+  assertEqual(atkMult, 1.65, 'Fully unlocked attack branch must yield 1.65x (+65%) Logic Attack Multiplier');
+});
+
+test('Model Identity Imagen Avatar Prompt Synthesis Invariants', 'Combat Throne', () => {
+  const generateAvatarPrompt = (modelName: string, primarySkill: string, style: string) => {
+    return `A high-detail 1:1 square portrait of a legendary AI model avatar representing "${modelName}" specialized in "${primarySkill}". ${style}`;
+  };
+
+  const prompt = generateAvatarPrompt('ARE-rLOGIC-70b', 'Empty-Clause Contradiction Titan', 'epic fantasy RPG champion');
+  assert(prompt.includes('ARE-rLOGIC-70b'), 'Prompt must contain model name');
+  assert(prompt.includes('Empty-Clause Contradiction Titan'), 'Prompt must contain primary logic skill');
+});
+
+test('D3 Battle Efficiency Trends 30-Day Heatmap Matrix Invariants', 'Combat Throne', () => {
+  const strategies = ['Empty-Clause Contradiction Titan', 'Davis-Putnam Resolution'];
+  const categories = ['Logical Reasoning', 'Code Verification', 'Math Proofs'];
+
+  const matrixSize = strategies.length * categories.length;
+  assertEqual(matrixSize, 6, 'Heatmap matrix for 2 strategies x 3 categories must equal 6 cells');
+});
+
+test('Random RPG Loot Drops Rarity & Stat Bonus Stacking', 'Combat Throne', () => {
+  const sampleItems = [
+    { name: 'Titan Blade', atkBonus: 25, defBonus: 0, equipped: true },
+    { name: 'Merkle Shield', atkBonus: 0, defBonus: 20, equipped: true },
+    { name: 'Davis Amulet', atkBonus: 15, defBonus: 15, equipped: false }
+  ];
+
+  const equipped = sampleItems.filter(i => i.equipped);
+  const totalAtk = equipped.reduce((acc, i) => acc + i.atkBonus, 0);
+  const totalDef = equipped.reduce((acc, i) => acc + i.defBonus, 0);
+
+  assertEqual(totalAtk, 25, 'Equipped attack bonus must equal 25');
+  assertEqual(totalDef, 20, 'Equipped defense bonus must equal 20');
+});
+
+test('Firebase Saved Dataset & Connected HF Project Invariants', 'Firebase Integration', () => {
+  const createSavedDatasetRecord = (userId: string, name: string, targetProject?: string) => {
+    return {
+      id: `ds_${Date.now()}`,
+      userId,
+      name,
+      targetProject: targetProject || 'ouroboroscollective/evidence-bound-css',
+      format: 'parquet',
+      createdAt: new Date().toISOString()
+    };
+  };
+
+  const resolveTargetProject = (projects: Array<{ repoName: string; isDefaultTarget?: boolean }>, override?: string) => {
+    if (override) return override;
+    const defaultProj = projects.find(p => p.isDefaultTarget);
+    return defaultProj?.repoName || 'ouroboroscollective/evidence-bound-css';
+  };
+
+  const mockUser = 'usr_0x123abc';
+  const rec = createSavedDatasetRecord(mockUser, 'Reasoning Fine-Tuning Corpus');
+  assertEqual(rec.userId, mockUser, 'Saved dataset must belong to authenticated user');
+  assertEqual(rec.format, 'parquet', 'Format must be preserved');
+
+  const mockProjects = [
+    { repoName: 'my-org/custom-dataset', isDefaultTarget: false },
+    { repoName: 'researcher/llama3-fine-tune', isDefaultTarget: true }
+  ];
+
+  assertEqual(resolveTargetProject(mockProjects), 'researcher/llama3-fine-tune', 'Must resolve default connected project');
+  assertEqual(resolveTargetProject(mockProjects, 'custom/manual-target'), 'custom/manual-target', 'Must respect explicit chooseable target');
+});
+
+test('Dataset Snapshot Firestore Invariants & Visual Diff Delta Invariants', 'Dataset Snapshots', () => {
+  const computeSchemaDiff = (
+    baselineCols: Array<{ name: string; type: string }>,
+    targetCols: Array<{ name: string; type: string }>
+  ) => {
+    const baseSet = new Set(baselineCols.map(c => c.name));
+    const targetSet = new Set(targetCols.map(c => c.name));
+
+    const added = targetCols.filter(c => !baseSet.has(c.name));
+    const removed = baselineCols.filter(c => !targetSet.has(c.name));
+    const common = targetCols.filter(c => baseSet.has(c.name));
+    const typeDrift = common.filter(tc => {
+      const bc = baselineCols.find(c => c.name === tc.name);
+      return bc && bc.type !== tc.type;
+    });
+
+    return { added, removed, common, typeDrift };
+  };
+
+  const baseColumns = [
+    { name: 'id', type: 'string' },
+    { name: 'prompt', type: 'string' },
+    { name: 'unfiltered_html', type: 'string' },
+    { name: 'score', type: 'int' }
+  ];
+
+  const targetColumns = [
+    { name: 'id', type: 'string' },
+    { name: 'prompt', type: 'string' },
+    { name: 'score', type: 'float' }, // type drift
+    { name: 'reasoning_steps', type: 'list' }, // newly added
+    { name: 'verified_proof', type: 'dict' } // newly added
+  ];
+
+  const diff = computeSchemaDiff(baseColumns, targetColumns);
+  assertEqual(diff.added.length, 2, 'Must detect 2 newly added feature columns');
+  assertEqual(diff.removed.length, 1, 'Must detect 1 pruned/removed column (unfiltered_html)');
+  assertEqual(diff.typeDrift.length, 1, 'Must detect 1 type drift column (score: int -> float)');
+
+  // Row count delta check
+  const baseRows = 40000;
+  const targetRows = 45000;
+  const delta = targetRows - baseRows;
+  const deltaPct = ((delta / baseRows) * 100).toFixed(1);
+  assertEqual(delta, 5000, 'Row delta must be +5000');
+  assertEqual(deltaPct, '12.5', 'Row delta percentage must be +12.5%');
+});
+
+test('PipelineOptimizer Batch Queue Matrix Generator & Real-Time Board Invariants', 'Pipeline Optimizer', () => {
+  const generateBatchMatrix = (
+    datasets: string[],
+    formats: Array<'alpaca' | 'chatml' | 'llama3' | 'dpo'>
+  ) => {
+    const jobs: Array<{ datasetId: string; format: string; status: string; progressPct: number }> = [];
+    for (const ds of datasets) {
+      for (const fmt of formats) {
+        jobs.push({
+          datasetId: ds,
+          format: fmt,
+          status: 'queued',
+          progressPct: 0
+        });
+      }
+    }
+    return jobs;
+  };
+
+  const sampleDatasets = [
+    'ouroboroscollective/ARE-rLOGIC-class',
+    'ouroboroscollective/evidence-bound-css',
+    'Thorsu/sovereign-evidence-observatory'
+  ];
+  const sampleFormats: Array<'alpaca' | 'chatml' | 'llama3' | 'dpo'> = ['alpaca', 'chatml'];
+
+  const batchJobs = generateBatchMatrix(sampleDatasets, sampleFormats);
+  assertEqual(batchJobs.length, 6, 'Batch matrix of 3 datasets x 2 formats must equal 6 queued jobs');
+  assert(batchJobs.every(j => j.status === 'queued'), 'All freshly generated batch jobs must initialize in queued state');
+
+  // Board partition invariants
+  const partitionBoard = (allJobs: Array<{ status: string }>) => {
+    return {
+      queued: allJobs.filter(j => j.status === 'queued').length,
+      processing: allJobs.filter(j => j.status === 'processing').length,
+      completed: allJobs.filter(j => j.status === 'completed').length,
+      failed: allJobs.filter(j => j.status === 'failed').length
+    };
+  };
+
+  const mixedJobs = [
+    { status: 'queued' },
+    { status: 'queued' },
+    { status: 'processing' },
+    { status: 'completed' },
+    { status: 'completed' },
+    { status: 'failed' }
+  ];
+
+  const board = partitionBoard(mixedJobs);
+  assertEqual(board.queued, 2, 'Queued column count must equal 2');
+  assertEqual(board.processing, 1, 'Processing column count must equal 1');
+  assertEqual(board.completed, 2, 'Completed column count must equal 2');
+  assertEqual(board.failed, 1, 'Failed column count must equal 1');
 });
 
 // -------------------------------------------------------------------

@@ -64,6 +64,26 @@
 ### Entry 2026-10-06-14: Synthetic Text 429 Quota Resilience & Multi-Tier Model Upgrades
 - Target: Beseitigung der 429 Resource-Exhausted Quota-Fehler in `/api/synthetic/text` und `/api/datasets/optimize` durch Umstellung von `gemini-3.1-pro-preview` auf das stabile und performante `gemini-3.8-flash` mit zweistufigem `gemini-3.1-flash-lite`-Fallback. Implementierung eines schema-konformen deterministischen Fallback-Generators für synthetische Trainingsdaten (`alpaca`, `chatml`, `llama3`, `dpo`, `sharegpt`), sodass Quota-Überschreitungen und 503-Spitzen vollständig abgefedert werden. Regressionstests (18/18 passing).
 
+---
+### Entry 2026-10-06-15: Slider Replay Scrubbing, Recharts Battle Analytics & Model Skill Tree
+- Target: Vollwertige Integration des interaktiven Slider-basierten Playbacks (`ArenaReplayViewer.tsx`) zum bildgenauen Scrubbing historischer Match-Revisionen mit Logikangriff-Impact-Visualisierung. Recharts-basierte 'Battle Analytics' Trends (`ArenaChartsDashboard.tsx`) für die Top-10-Modelle mit Umschaltung zwischen Einzelmodell-Performance und globalen Benchmarks. RPG Model Skill Tree (`ModelSkillTree.tsx`) in der Logic Arena mit Skill-Points-Vergabe aus Match-Siegen und persistierbaren Multiplikatoren für 'Logic Attack' und 'Evidence Defense'. Automatisierte Test-Suite erweitert (21/21 passing).
+
+---
+### Entry 2026-10-06-16: Model Identity Imagen Avatar Studio, D3 Efficiency Heatmap & RPG Loot Drops
+- Target: Implementierung der 'Model Identity' Komponente (`ModelIdentity.tsx`, `/api/arena/generate-avatar`) in der Logic Arena zur Generierung einzigartiger Modell-Avatar-Grafiken mit Imagen 3 basierend auf dem primären Logic Attack Skillset (Empty-Clause Contradiction Titan, Davis-Putnam Resolution, AST Invariant Shatter) und wählbaren Kunststilen. D3/SVG-basierte 2D 'Battle Efficiency Trends' Heatmap (`BattleEfficiencyHeatmap.tsx`, `/api/arena/battle-trends`) zur Visualisierung der 30-Tage-Performance von Revision-Strategien gegen Datensatz-Kategorien. Zufälliges RPG Loot Drops System (`LootDropModal.tsx`) mit Seltenheitsstufen (Common bis Mythic) und ausrüstbarer Ausrüstung für Stat-Boni. Automatisierte Test-Suite erweitert (24/24 passing).
+
+---
+### Entry 2026-10-06-17: Fix ESM __dirname ReferenceError for Container Deployment
+- Target: Behebung des `ReferenceError: __dirname is not defined` Absturzes im Container-Deployment (`server.ts:3829`) durch Definition von `__dirname` und `__filename` via `fileURLToPath(import.meta.url)` in `server.ts`. Bereinigung der Vite-Config-Pfade auf `process.cwd()` für native Kompatibilität. Produktion-Build (`npm run build`) und alle 24 automatisierten Tests erfolgreich verifiziert.
+
+---
+### Entry 2026-10-06-18: Firebase Provisioning, Account Auth, Saved Datasets & Connected HF Projects
+- Target: Vollständige Firebase-Integration (Firestore & Auth) via `ProvisionFirebase` RPC (`project-b29d4703-a302-4b05-b2e`, Region `europe-west1`). Bereitstellung von `firebase-blueprint.json` und gehärteten ABAC-Sicherheitsregeln (`firestore.rules`, via `DeployRules` RPC). Implementierung von `FirebaseAuthProvider` (`src/context/FirebaseAuthContext.tsx`) mit Google-Sign-In, User Profile Synchronisation, Speicherung benutzerdefinierter Datensätze (`users/{userId}/saved_datasets/{datasetId}`) und Verwaltung verknüpfter Hugging Face Zielprojekte (`users/{userId}/connected_projects/{projectId}`). Einbindung des User Account & Projects Hub Modals (`UserAccountModal.tsx`) sowie 'Save to Account' Aktionen in `DatasetVisualizer.tsx` und `HubExplorer.tsx` mit wählbarem Projekt-Export. Regressionstests erweitert (25/25 passing).
+
+---
+### Entry 2026-10-06-19: Dataset Snapshot Firestore Visual Diff & PipelineOptimizer Real-Time Batch Board
+- Target: Implementierung des 'Dataset Snapshot' Features in `DatasetVisualizer.tsx` (`DatasetSnapshotDiff.tsx`, `src/context/FirebaseAuthContext.tsx`), mit dem Anwender den aktuellen Zustand eines Datensatzes als Momentaufnahme (Label, Zeilenzahl, Schema, Verteilungs-Metriken, Stichproben) in Firestore (`users/{userId}/dataset_snapshots/{snapshotId}`) sichern und visuelle Diffs gegen historische Snapshots ausführen können (Zeilenzahl-Delta mit %-Badge, Schema-Evolution mit Spalten-Hinzufügung/Entfernung/Type-Drift, und Side-by-Side Datensatz-Inspektion). Erweiterung des `PipelineOptimizer.tsx` um umfassendes Batch-Processing (`BatchProgressBoard.tsx`, `BatchQueueModal.tsx`) mit Multi-Dataset/Multi-Format Matrix-Generator und Kanban-Progress-Board (Spalten: Queued, Processing mit Live DAG & Durchsatz, Completed mit Export/Inspect, Failed mit Retry). Erweiterung der Test-Suite auf 27/27 bestandene Tests.
+
 
 
 

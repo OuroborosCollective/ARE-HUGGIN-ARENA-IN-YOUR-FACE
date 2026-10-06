@@ -84,9 +84,12 @@ export const McpInspector: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 font-mono text-xs text-emerald-400 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Endpoint: /api/mcp</span>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 font-mono text-xs bg-slate-950 px-3 py-2 rounded-xl border border-slate-800">
+            <div className="flex items-center gap-2 text-emerald-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Production Endpoint:</span>
+            </div>
+            <code className="text-amber-300 font-bold select-all">https://aredatasetarenahugginface.ai.studio/api/mcp</code>
           </div>
         </div>
       </div>

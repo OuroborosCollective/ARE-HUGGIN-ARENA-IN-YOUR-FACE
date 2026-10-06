@@ -1,0 +1,200 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common security primitives
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // User Profile Validation
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['userId', 'email', 'createdAt']) &&
+        data.keys().hasOnly(['userId', 'email', 'displayName', 'photoURL', 'hfUsername', 'createdAt', 'updatedAt']) &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.email is string && data.email.size() <= 200 &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500)) &&
+        (!('hfUsername' in data) || (data.hfUsername is string && data.hfUsername.size() <= 100)) &&
+        data.createdAt is string && data.createdAt.size() <= 60 &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 60));
+    }
+
+    // Saved Dataset Validation
+    function isValidSavedDataset(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'datasetId', 'name', 'description', 'targetProject', 'format', 'sampleCount', 'tags', 'learningData', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 150 &&
+        (!('datasetId' in data) || (data.datasetId is string && data.datasetId.size() <= 200)) &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+        (!('targetProject' in data) || (data.targetProject is string && data.targetProject.size() <= 200)) &&
+        (!('format' in data) || (data.format is string && data.format.size() <= 50)) &&
+        (!('sampleCount' in data) || (data.sampleCount is number && data.sampleCount >= 0)) &&
+        (!('tags' in data) || (data.tags is list && data.tags.size() <= 30)) &&
+        (!('learningData' in data) || (data.learningData is string && data.learningData.size() <= 500000)) &&
+        data.createdAt is string && data.createdAt.size() <= 60 &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 60));
+    }
+
+    // Dataset Snapshot Validation
+    function isValidDatasetSnapshot(data) {
+      return data.keys().hasAll(['id', 'userId', 'datasetId', 'label', 'numRows', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'datasetId', 'datasetName', 'label', 'numRows', 'size', 'features', 'distributionMetrics', 'sampleRows', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.datasetId is string && data.datasetId.size() <= 200 &&
+        (!('datasetName' in data) || (data.datasetName is string && data.datasetName.size() <= 150)) &&
+        data.label is string && data.label.size() > 0 && data.label.size() <= 100 &&
+        data.numRows is number && data.numRows >= 0 &&
+        (!('size' in data) || (data.size is string && data.size.size() <= 50)) &&
+        (!('features' in data) || (data.features is list && data.features.size() <= 100)) &&
+        (!('distributionMetrics' in data) || (data.distributionMetrics is map)) &&
+        (!('sampleRows' in data) || (data.sampleRows is list && data.sampleRows.size() <= 200)) &&
+        data.createdAt is string && data.createdAt.size() <= 60 &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 60));
+    }
+
+    // Connected Project Validation
+    function isValidConnectedProject(data) {
+      return data.keys().hasAll(['id', 'userId', 'repoName', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'repoName', 'repoType', 'description', 'defaultFormat', 'isDefaultTarget', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.repoName is string && data.repoName.size() > 0 && data.repoName.size() <= 150 &&
+        (!('repoType' in data) || (data.repoType in ['dataset', 'model', 'space'])) &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
+        (!('defaultFormat' in data) || (data.defaultFormat is string && data.defaultFormat.size() <= 50)) &&
+        (!('isDefaultTarget' in data) || (data.isDefaultTarget is bool)) &&
+        data.createdAt is string && data.createdAt.size() <= 60 &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 60));
+    }
+
+    // 3D GLB Character Model Validation
+    function isValidCharacterModel(data) {
+      return data.keys().hasAll(['id', 'name', 'modelUrl', 'characterClass', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'name', 'description', 'modelUrl', 'thumbnailUrl', 'characterClass', 'evidenceAffinity', 'scale', 'author', 'uploadedBy', 'isOfficial', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.modelUrl is string && data.modelUrl.size() > 0 && data.modelUrl.size() <= 800000 &&
+        data.characterClass in ['paladin', 'archmage', 'assassin', 'berserker', 'logic_knight'] &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
+        (!('thumbnailUrl' in data) || (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 50000)) &&
+        (!('evidenceAffinity' in data) || (data.evidenceAffinity is string && data.evidenceAffinity.size() <= 100)) &&
+        (!('scale' in data) || (data.scale is number && data.scale > 0 && data.scale <= 5.0)) &&
+        (!('author' in data) || (data.author is string && data.author.size() <= 100)) &&
+        (!('uploadedBy' in data) || (data.uploadedBy is string && data.uploadedBy.size() <= 128)) &&
+        (!('isOfficial' in data) || (data.isOfficial is bool)) &&
+        data.createdAt is string && data.createdAt.size() <= 60 &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 60));
+    }
+
+    // Admin Verification Helper
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'projectouroboroscollective@gmail.com';
+    }
+
+    // Global 3D GLB Fighter Character Models (Public read, Admin create/update/delete)
+    match /models/{modelId} {
+      allow get: if isValidId(modelId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(modelId) && isValidCharacterModel(incoming()) && incoming().id == modelId;
+      allow update: if isAdmin() && isValidId(modelId) && isValidCharacterModel(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(modelId);
+    }
+
+    // Root User Document
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming());
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming()) &&
+                    incoming().userId == existing().userId &&
+                    incoming().createdAt == existing().createdAt;
+      allow delete: if false;
+
+      // Saved Datasets Subcollection
+      match /saved_datasets/{datasetId} {
+        allow get: if isOwner(userId) && isValidId(datasetId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(datasetId) && isValidSavedDataset(incoming()) && incoming().id == datasetId;
+        allow update: if isOwner(userId) && isValidId(datasetId) && isValidSavedDataset(incoming()) &&
+                      incoming().userId == existing().userId &&
+                      incoming().id == existing().id &&
+                      incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId) && isValidId(datasetId);
+      }
+
+      // Dataset Snapshots Subcollection
+      match /dataset_snapshots/{snapshotId} {
+        allow get: if isOwner(userId) && isValidId(snapshotId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(snapshotId) && isValidDatasetSnapshot(incoming()) && incoming().id == snapshotId;
+        allow update: if isOwner(userId) && isValidId(snapshotId) && isValidDatasetSnapshot(incoming()) &&
+                      incoming().userId == existing().userId &&
+                      incoming().id == existing().id &&
+                      incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId) && isValidId(snapshotId);
+      }
+
+      // Connected Hugging Face Projects Subcollection
+      match /connected_projects/{projectId} {
+        allow get: if isOwner(userId) && isValidId(projectId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(projectId) && isValidConnectedProject(incoming()) && incoming().id == projectId;
+        allow update: if isOwner(userId) && isValidId(projectId) && isValidConnectedProject(incoming()) &&
+                      incoming().userId == existing().userId &&
+                      incoming().id == existing().id &&
+                      incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId) && isValidId(projectId);
+      }
+
+      // Proof-of-Work Combat Revisions Subcollection
+      match /combat_revisions/{revisionId} {
+        allow get: if isOwner(userId) && isValidId(revisionId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(revisionId) && incoming().userId == request.auth.uid && incoming().id == revisionId;
+        allow update: if false; // Combat revisions are immutable proof-of-work receipts
+        allow delete: if isOwner(userId) && isValidId(revisionId);
+      }
+
+      // Real-time Deterministic Match Queue Subcollection
+      match /match_queue/{queueId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(queueId) && incoming().userId == request.auth.uid && incoming().id == queueId;
+        allow update: if isOwner(userId) && isValidId(queueId) && incoming().userId == request.auth.uid;
+        allow delete: if isOwner(userId) && isValidId(queueId);
+      }
+
+      // Idempotent User RPG Profile & Honor Medals Subcollection
+      match /rpg_profile/{profileId} {
+        allow get: if isOwner(userId) && isValidId(profileId);
+        allow list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(profileId) && incoming().userId == request.auth.uid && incoming().id == profileId;
+        allow delete: if isOwner(userId) && isValidId(profileId);
+      }
+    }
+  }
+}

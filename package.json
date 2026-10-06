@@ -13,17 +13,24 @@
     "test": "tsx test/run_suite.ts"
   },
   "dependencies": {
+    "@genkit-ai/googleai": "^1.28.0",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/d3": "^7.4.3",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "d3": "^7.9.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "firebase": "^12.19.0",
     "framer-motion": "^14.0.0",
+    "genkit": "^1.42.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "recharts": "^3.10.1",
+    "three": "^0.186.1",
     "vite": "^8.3.0"
   },
   "devDependencies": {

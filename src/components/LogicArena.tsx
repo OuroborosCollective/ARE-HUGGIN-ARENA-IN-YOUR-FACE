@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Swords, Shield, Trophy, Award, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw, Terminal, Copy, Check, Hash, Sparkles, Cpu, BookOpen, Download, BarChart3, ListFilter, UploadCloud, ExternalLink, Play, Link2, Crown, UserCheck, Flame, History, X, Medal, Gamepad2 } from 'lucide-react';
+import { Swords, Shield, Trophy, Award, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw, Terminal, Copy, Check, Hash, Sparkles, Cpu, BookOpen, Download, BarChart3, ListFilter, UploadCloud, ExternalLink, Play, Link2, Crown, UserCheck, Flame, History, X, Medal, Gamepad2, Zap } from 'lucide-react';
 import { ArenaChartsDashboard } from './ArenaChartsDashboard';
 import { BattleLogsTable } from './BattleLogsTable';
 import { ArenaReplayViewer } from './ArenaReplayViewer';
@@ -8,6 +8,15 @@ import { GlobalDatasetLeaderboard } from './GlobalDatasetLeaderboard';
 import { RpgAutoBattler } from './RpgAutoBattler';
 import { LogicArenaCombatVisualizer } from './LogicArenaCombatVisualizer';
 import { BattleSummaryCard } from './BattleSummaryCard';
+import { ModelSkillTree } from './ModelSkillTree';
+import { ModelIdentity, LootItem } from './ModelIdentity';
+import { BattleEfficiencyHeatmap } from './BattleEfficiencyHeatmap';
+import { LootDropModal } from './LootDropModal';
+import { CombatHistoryView } from './CombatHistoryView';
+import { AdminModel3DUploaderModal } from './AdminModel3DUploaderModal';
+import { FirestoreCombatAnalyticsDashboard } from './FirestoreCombatAnalyticsDashboard';
+import { D3CombatZoneHeatmap } from './D3CombatZoneHeatmap';
+import { Box } from 'lucide-react';
 
 interface ArenaParticipant {
   rank: number;
@@ -71,7 +80,7 @@ interface LogicArenaProps {
 }
 
 export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectForVisualizer, onSelectForPipeline }) => {
-  const [activeTab, setActiveTab] = useState<'rpg_battler' | 'battle' | 'throne' | 'dataset_leaderboard' | 'history' | 'replay' | 'merkle_chain' | 'leaderboard' | 'charts' | 'receipts' | 'mcp_docs'>('rpg_battler');
+  const [activeTab, setActiveTab] = useState<'rpg_battler' | 'model_identity' | 'trends_heatmap' | 'battle' | 'throne' | 'dataset_leaderboard' | 'skill_tree' | 'history' | 'replay' | 'merkle_chain' | 'leaderboard' | 'charts' | 'receipts' | 'mcp_docs'>('rpg_battler');
   const [leaderboard, setLeaderboard] = useState<ArenaParticipant[]>([]);
   const [matches, setMatches] = useState<MatchReceipt[]>([]);
   const [thrones, setThrones] = useState<CombatThroneItem[]>([]);
@@ -79,6 +88,66 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
   const [battleLoading, setBattleLoading] = useState(false);
   const [lastBattleResult, setLastBattleResult] = useState<MatchReceipt | null>(null);
   const [selectedReplayMatch, setSelectedReplayMatch] = useState<MatchReceipt | null>(null);
+  const [isAdmin3DModalOpen, setIsAdmin3DModalOpen] = useState(false);
+
+  // Loot Drops Modal State
+  const [lootModalOpen, setLootModalOpen] = useState(false);
+  const [droppedItems, setDroppedItems] = useState<LootItem[]>([]);
+
+  const triggerLootDrop = () => {
+    const pool: LootItem[] = [
+      {
+        id: `drop_${Date.now()}_1`,
+        name: 'Davis-Putnam Resolution Ring',
+        type: 'relic',
+        rarity: 'rare',
+        statBonusText: '+12 ATK, +5% Crit Rate',
+        atkBonus: 12,
+        defBonus: 0,
+        critBonus: 5,
+        icon: '💍',
+        description: 'Increases resolvent generation speed in logic battles.'
+      },
+      {
+        id: `drop_${Date.now()}_2`,
+        name: 'AST Invariant Shatter Gauntlet',
+        type: 'weapon',
+        rarity: 'epic',
+        statBonusText: '+18 ATK, +10% Crit Rate',
+        atkBonus: 18,
+        defBonus: 0,
+        critBonus: 10,
+        icon: '🥊',
+        description: 'Punches through target model invariant claims.'
+      },
+      {
+        id: `drop_${Date.now()}_3`,
+        name: 'Empty Clause Titan Relic',
+        type: 'relic',
+        rarity: 'mythic',
+        statBonusText: '+30 ATK, +20 DEF',
+        atkBonus: 30,
+        defBonus: 20,
+        critBonus: 12,
+        icon: '🔱',
+        description: 'Mythic relic containing the essence of zero-contradiction logic.'
+      }
+    ];
+
+    const count = Math.floor(Math.random() * 2) + 1;
+    const items = pool.slice(0, count);
+    setDroppedItems(items);
+    setLootModalOpen(true);
+
+    // Save to inventory
+    try {
+      const saved = localStorage.getItem('are_rpg_loot_inventory_v1');
+      const existing = saved ? JSON.parse(saved) : [];
+      localStorage.setItem('are_rpg_loot_inventory_v1', JSON.stringify([...items, ...existing]));
+    } catch (e) {
+      console.warn('Loot inventory save error:', e);
+    }
+  };
 
   // Battle Configuration
   const [attackerModel, setAttackerModel] = useState('ouroboros/ARE-rLOGIC-70b');
@@ -185,6 +254,9 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
         } catch (e) {
           console.warn('Hero XP sync error:', e);
         }
+
+        // Trigger Random RPG Loot Drop
+        triggerLootDrop();
       }
     } catch (err: any) {
       alert('Battle execution error: ' + err.message);
@@ -364,6 +436,30 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
             </button>
 
             <button
+              onClick={() => setActiveTab('model_identity')}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap min-h-[44px] shrink-0 ${
+                activeTab === 'model_identity'
+                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/10 font-black'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <UserCheck className="w-4 h-4 text-amber-400" />
+              <span>👤 Model Identity & Avatar</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('trends_heatmap')}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap min-h-[44px] shrink-0 ${
+                activeTab === 'trends_heatmap'
+                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/10 font-black'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 text-amber-400" />
+              <span>📊 Efficiency Trends Heatmap</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('battle')}
               className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap min-h-[44px] shrink-0 ${
                 activeTab === 'battle'
@@ -397,6 +493,18 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
             >
               <Medal className="w-4 h-4 text-amber-400" />
               <span>Dataset Leaderboard & Medals</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('skill_tree')}
+              className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap min-h-[44px] shrink-0 ${
+                activeTab === 'skill_tree'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Zap className="w-4 h-4 text-amber-400" />
+              <span>⚡ Skill Tree & Buffs</span>
             </button>
 
             <button
@@ -487,6 +595,15 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
               <Terminal className="w-4 h-4" />
               <span>Protocol</span>
             </button>
+
+            <button
+              onClick={() => setIsAdmin3DModalOpen(true)}
+              className="px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap min-h-[44px] shrink-0 bg-gradient-to-r from-amber-500/20 to-amber-700/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 shadow-sm"
+              title="Admin 3D GLB Studio: Upload and manage custom 3D chibi character models"
+            >
+              <Crown className="w-4 h-4 text-amber-400" />
+              <span>Admin 3D Studio</span>
+            </button>
           </div>
         </div>
       </div>
@@ -497,6 +614,32 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
           onExportToHf={onExportToHf}
           availableOpponents={leaderboard}
         />
+      )}
+
+      {/* TAB: MODEL IDENTITY & IMAGEN AVATAR STUDIO */}
+      {activeTab === 'model_identity' && (
+        <ModelIdentity
+          modelId={attackerModel}
+          modelName={attackerModel.split('/').pop() || 'ARE-rLOGIC-70b'}
+          onExportToHf={onExportToHf}
+        />
+      )}
+
+      {/* TAB: BATTLE EFFICIENCY TRENDS & D3 COMBAT HEATMAP */}
+      {activeTab === 'trends_heatmap' && (
+        <div className="space-y-6">
+          <D3CombatZoneHeatmap
+            onSelectZone={(zone, dmgType) => {
+              setTargetClaim(`Invariant verification probe for ${zone}`);
+              setCustomPayload(`Synthesize counterexample via ${dmgType}`);
+            }}
+          />
+          <BattleEfficiencyHeatmap
+            onSelectCategory={(cat) => {
+              setActiveTab('battle');
+            }}
+          />
+        </div>
       )}
 
       {/* TAB 1: LIVE BATTLE */}
@@ -787,18 +930,29 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
         />
       )}
 
-      {/* TAB: HISTORICAL MATCH HISTORY (CLEAN MOBILE TABLE) */}
+      {/* TAB: RPG MODEL SKILL TREE & ACTIVE BUFF SPECS */}
+      {activeTab === 'skill_tree' && (
+        <ModelSkillTree
+          onExportToHf={onExportToHf}
+        />
+      )}
+
+      {/* TAB: HISTORICAL MATCH HISTORY & FIRESTORE COMBAT LEDGER */}
       {activeTab === 'history' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          <CombatHistoryView
+            onExportToHf={onExportToHf}
+          />
+
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
                   <History className="w-5 h-5 text-amber-400" />
-                  <span>Historical Match History</span>
+                  <span>Public Tournament Arena Archive</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Full verified log of tournament battles, evidence revision points, and referee decisions.
+                  Global public tournament model-vs-model refutation logs and referee verdicts.
                 </p>
               </div>
 
@@ -893,9 +1047,17 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
         </div>
       )}
 
-      {/* TAB 7: CHARTS */}
+      {/* TAB 7: CHARTS & FIRESTORE REAL-TIME COMBAT ANALYTICS */}
       {activeTab === 'charts' && (
-        <ArenaChartsDashboard leaderboard={leaderboard} />
+        <div className="space-y-6">
+          <FirestoreCombatAnalyticsDashboard
+            onExportToHf={onExportToHf}
+            onSelectReplayMatch={(rev) => {
+              setActiveTab('replay');
+            }}
+          />
+          <ArenaChartsDashboard leaderboard={leaderboard} />
+        </div>
       )}
 
       {/* TAB 8: RECEIPTS */}
@@ -934,15 +1096,27 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
       {/* TAB 9: MCP PROTOCOL DOCS */}
       {activeTab === 'mcp_docs' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-            <Terminal className="w-5 h-5 text-amber-400" />
-            <span>Model Context Protocol (MCP) Arena Invariant Specification</span>
-          </h3>
-          <p className="text-xs text-slate-400">
-            ARE uses the official Model Context Protocol to bridge local agents to external reasoning benchmarks and Hugging Face datasets.
-          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-amber-400" />
+                <span>Model Context Protocol (MCP) Arena Invariant Specification</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                ARE uses the official Model Context Protocol to bridge local agents to external reasoning benchmarks and Hugging Face datasets.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
+              <span className="text-slate-400">Endpoint:</span>
+              <code className="text-amber-300 font-bold">https://aredatasetarenahugginface.ai.studio/api/mcp</code>
+            </div>
+          </div>
           <pre className="p-4 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-amber-300/90 overflow-x-auto">
-{`// MCP Tool Signature
+{`// Canonical MCP Server Endpoint
+// POST https://aredatasetarenahugginface.ai.studio/api/mcp
+
+// MCP Tool Signature
 {
   "name": "are_logic_attack",
   "description": "Execute an ARE logic attack action against an invariant claim",
@@ -961,6 +1135,15 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
           </pre>
         </div>
       )}
+
+      {/* ADMIN 3D GLB STUDIO MODAL */}
+      <AdminModel3DUploaderModal
+        isOpen={isAdmin3DModalOpen}
+        onClose={() => setIsAdmin3DModalOpen(false)}
+        onModelUploaded={(model) => {
+          setIsAdmin3DModalOpen(false);
+        }}
+      />
 
       {/* FIGHT TO DEPOSE MODAL */}
       {deposeModalOpen && selectedThrone && (
@@ -1160,6 +1343,17 @@ export const LogicArena: React.FC<LogicArenaProps> = ({ onExportToHf, onSelectFo
           <span>⚡ Quick Fight</span>
         </button>
       </div>
+
+      {/* RANDOM RPG LOOT DROP MODAL */}
+      <LootDropModal
+        isOpen={lootModalOpen}
+        droppedItems={droppedItems}
+        onClose={() => setLootModalOpen(false)}
+        onEquipItem={(item) => {
+          setActiveTab('model_identity');
+          setLootModalOpen(false);
+        }}
+      />
     </div>
   );
 };

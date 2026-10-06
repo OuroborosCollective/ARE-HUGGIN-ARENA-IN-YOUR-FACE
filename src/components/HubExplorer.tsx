@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Database, Download, Heart, Eye, Sparkles, Filter, Code2, Layers, ChevronRight, Check, BarChart3, UploadCloud, ExternalLink, ShieldCheck, Swords, Trophy, Crown, UserCheck, X, AlertCircle, RefreshCw, Hash, Play } from 'lucide-react';
+import { Search, Database, Download, Heart, Eye, Sparkles, Filter, Code2, Layers, ChevronRight, Check, BarChart3, UploadCloud, ExternalLink, ShieldCheck, Swords, Trophy, Crown, UserCheck, X, AlertCircle, RefreshCw, Hash, Play, BookmarkPlus } from 'lucide-react';
+import { useFirebaseAuth } from '../context/FirebaseAuthContext';
 
 interface Dataset {
   id: string;
@@ -58,6 +59,38 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({
   const [loading, setLoading] = useState(false);
   const [activeDataset, setActiveDataset] = useState<Dataset | null>(null);
   const [activeTab, setActiveTab] = useState<'preview' | 'schema' | 'raw'>('preview');
+
+  // Firebase integration
+  const { user, saveDataset, connectedProjects } = useFirebaseAuth();
+  const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
+  const [isSavingDataset, setIsSavingDataset] = useState(false);
+
+  const handleSaveActiveToAccount = async (ds: Dataset) => {
+    if (!user) {
+      alert('Please click Account in the top navigation bar to sign in.');
+      return;
+    }
+    setIsSavingDataset(true);
+    try {
+      const defaultTarget = connectedProjects.find(p => p.isDefaultTarget)?.repoName || '';
+      await saveDataset({
+        datasetId: ds.id,
+        name: ds.name || ds.id,
+        description: ds.description || `${ds.task} dataset with ${ds.num_rows} rows`,
+        targetProject: defaultTarget,
+        format: 'parquet',
+        sampleCount: ds.sample_rows?.length || ds.num_rows,
+        tags: ds.tags || [],
+        learningData: JSON.stringify(ds.sample_rows || [])
+      });
+      setSavedSuccessId(ds.id);
+      setTimeout(() => setSavedSuccessId(null), 3000);
+    } catch (err: any) {
+      alert(`Save error: ${err.message}`);
+    } finally {
+      setIsSavingDataset(false);
+    }
+  };
 
   // Linked HF Account State
   const [linkedHfAccount, setLinkedHfAccount] = useState<string>(() => {
@@ -625,6 +658,30 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({
                     >
                       <Swords className="w-3.5 h-3.5" />
                       <span>Challenge to Combat</span>
+                    </button>
+
+                    {/* Save to Firebase Account */}
+                    <button
+                      onClick={() => handleSaveActiveToAccount(activeDataset)}
+                      disabled={isSavingDataset}
+                      title="Save this dataset to your personal Firebase cloud account"
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors min-h-[38px] ${
+                        savedSuccessId === activeDataset.id
+                          ? 'bg-emerald-500 text-slate-950 font-bold'
+                          : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700'
+                      }`}
+                    >
+                      {savedSuccessId === activeDataset.id ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-slate-950" />
+                          <span>Saved!</span>
+                        </>
+                      ) : (
+                        <>
+                          <BookmarkPlus className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{isSavingDataset ? 'Saving...' : 'Save Dataset'}</span>
+                        </>
+                      )}
                     </button>
 
                     {onExportToHf && (

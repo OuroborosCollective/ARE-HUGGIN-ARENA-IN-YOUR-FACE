@@ -1,0 +1,516 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and settings associated with an authenticated account",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Authentication UID"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Public display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Avatar photo URL"
+        },
+        "hfUsername": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Connected Hugging Face username"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of account creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["userId", "email", "createdAt"]
+    },
+    "SavedDataset": {
+      "title": "SavedDataset",
+      "description": "Dataset saved in the app by a user for training, analysis, or playground usage",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique dataset document ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "datasetId": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Hugging Face dataset identifier or custom ID"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Display name of the dataset"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Summary or purpose of the dataset"
+        },
+        "targetProject": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Connected Hugging Face project/repository target"
+        },
+        "format": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Data schema format (alpaca, chatml, llama3, dpo, sharegpt)"
+        },
+        "sampleCount": {
+          "type": "number",
+          "description": "Number of learning samples or rows"
+        },
+        "tags": {
+          "type": "array",
+          "description": "Tags associated with the dataset"
+        },
+        "learningData": {
+          "type": "string",
+          "description": "Serialized training samples or preview payload"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["id", "userId", "name", "createdAt"]
+    },
+    "DatasetSnapshot": {
+      "title": "DatasetSnapshot",
+      "description": "Historical snapshot of a dataset state for visual diff comparisons",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique snapshot ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "datasetId": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Associated dataset identifier"
+        },
+        "datasetName": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Display name of the dataset"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "User label or milestone description"
+        },
+        "numRows": {
+          "type": "number",
+          "description": "Total row count at snapshot time"
+        },
+        "size": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Dataset file size"
+        },
+        "features": {
+          "type": "array",
+          "description": "List of feature columns and types"
+        },
+        "distributionMetrics": {
+          "type": "object",
+          "description": "Character lengths, null counts and distribution bins"
+        },
+        "sampleRows": {
+          "type": "array",
+          "description": "Sample rows captured for diff verification"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Snapshot creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Snapshot update timestamp"
+        }
+      },
+      "required": ["id", "userId", "datasetId", "label", "numRows", "createdAt"]
+    },
+    "ConnectedProject": {
+      "title": "ConnectedProject",
+      "description": "Hugging Face project or repository connected to the user account",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique project identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "repoName": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Repository or project name (e.g. username/dataset-repo)"
+        },
+        "repoType": {
+          "type": "string",
+          "enum": ["dataset", "model", "space"],
+          "description": "Hugging Face asset type"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Project description or notes"
+        },
+        "defaultFormat": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Default export schema format"
+        },
+        "isDefaultTarget": {
+          "type": "boolean",
+          "description": "Whether this project is the primary default destination"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Update timestamp"
+        }
+      },
+      "required": ["id", "userId", "repoName", "createdAt"]
+    },
+    "CharacterModel": {
+      "title": "CharacterModel",
+      "description": "3D GLB Chibi Fighter Character Model uploadable by Admin and selectable by players for 3D battles",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique model identifier"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Display name of the 3D chibi fighter"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Combat lore, provenance notes, and dataset affinity description"
+        },
+        "modelUrl": {
+          "type": "string",
+          "maxLength": 800000,
+          "description": "GLB data URI or hosted HTTPS URL of the 3D model"
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "maxLength": 50000,
+          "description": "Preview thumbnail image or data URI"
+        },
+        "characterClass": {
+          "type": "string",
+          "enum": ["paladin", "archmage", "assassin", "berserker", "logic_knight"],
+          "description": "Battle class and skill set affinity"
+        },
+        "evidenceAffinity": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Affinity dataset or evidence domain (e.g. ARE-rLOGIC, Evidence-Bound CSS, Sovereign Ledger)"
+        },
+        "scale": {
+          "type": "number",
+          "description": "Base visual rendering scale"
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Creator or uploader username/email"
+        },
+        "uploadedBy": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Admin UID who uploaded this model"
+        },
+        "isOfficial": {
+          "type": "boolean",
+          "description": "Whether this is an admin-verified official combatant model"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Upload timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["id", "name", "modelUrl", "characterClass", "createdAt"]
+    },
+    "CombatRevision": {
+      "title": "CombatRevision",
+      "description": "Deterministic proof-of-work battle result calculated purely from dataset evidence attributes",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique revision / match ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Hero user ID"
+        },
+        "attacker": {
+          "type": "string",
+          "description": "Attacking character / model name"
+        },
+        "defender": {
+          "type": "string",
+          "description": "Defending opponent model name"
+        },
+        "winningCombatant": {
+          "type": "string",
+          "description": "Winner identity"
+        },
+        "heroLevel": {
+          "type": "number",
+          "description": "Hero level at combat time"
+        },
+        "heroXp": {
+          "type": "number",
+          "description": "Hero XP at combat time"
+        },
+        "evidenceHistoryHash": {
+          "type": "string",
+          "description": "SHA-256 hash of immutable evidence dataset history"
+        },
+        "proofOfWorkHash": {
+          "type": "string",
+          "description": "Cryptographic proof of work receipt"
+        },
+        "turnsCount": {
+          "type": "number",
+          "description": "Total deterministic combat turns"
+        },
+        "pointsAwarded": {
+          "type": "number",
+          "description": "Revision points awarded"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["VICTORY", "DEFEAT", "DRAW"],
+          "description": "Battle outcome"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp of battle revision"
+        }
+      },
+      "required": ["id", "userId", "attacker", "defender", "proofOfWorkHash", "outcome", "createdAt"]
+    },
+    "UserRpgProfile": {
+      "title": "UserRpgProfile",
+      "description": "Idempotent RPG hero progression, allocated skill stats, and honor medals",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Profile ID ('hero')"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner UID"
+        },
+        "heroName": {
+          "type": "string",
+          "description": "Hero display name"
+        },
+        "className": {
+          "type": "string",
+          "description": "Character class"
+        },
+        "selectedModel3DId": {
+          "type": "string",
+          "description": "Active 3D GLB Chibi Fighter model ID"
+        },
+        "level": {
+          "type": "number",
+          "description": "Hero level"
+        },
+        "currentXp": {
+          "type": "number",
+          "description": "Current XP progress"
+        },
+        "totalBattles": {
+          "type": "number",
+          "description": "Total battles fought"
+        },
+        "totalWins": {
+          "type": "number",
+          "description": "Total battles won"
+        },
+        "revisionPoints": {
+          "type": "number",
+          "description": "Formal revision points"
+        },
+        "statPointsAvailable": {
+          "type": "number",
+          "description": "Unallocated stat points"
+        },
+        "allocatedStats": {
+          "type": "object",
+          "description": "Allocated attribute points"
+        },
+        "claimedMilestoneIds": {
+          "type": "array",
+          "description": "Idempotent set of claimed milestone IDs"
+        },
+        "claimedHonorMedals": {
+          "type": "array",
+          "description": "List of claimed honor medals"
+        },
+        "processedMatchReceipts": {
+          "type": "array",
+          "description": "Idempotent list of processed combat match receipts"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["id", "userId", "level", "createdAt"]
+    },
+    "MatchQueueItem": {
+      "title": "MatchQueueItem",
+      "description": "Deterministic battle match queue item with real-time status (Pending, Simulating, Finalized)",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique match queue ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner UID"
+        },
+        "fighter1": {
+          "type": "object",
+          "description": "First fighter from unlocked inventory"
+        },
+        "fighter2": {
+          "type": "object",
+          "description": "Second fighter from unlocked inventory"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Pending", "Simulating", "Finalized"],
+          "description": "Real-time queue lifecycle status"
+        },
+        "winnerName": {
+          "type": "string",
+          "description": "Name of the victorious fighter upon finalization"
+        },
+        "proofOfWorkHash": {
+          "type": "string",
+          "description": "Deterministic SHA-256 proof receipt"
+        },
+        "turnsCount": {
+          "type": "number",
+          "description": "Total combat turns"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp queued"
+        },
+        "finalizedAt": {
+          "type": "string",
+          "description": "Timestamp finalized"
+        }
+      },
+      "required": ["id", "userId", "fighter1", "fighter2", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/models/{modelId}": {
+      "schema": {
+        "$ref": "#/entities/CharacterModel"
+      },
+      "description": "Global 3D GLB fighter character models accessible to all players and uploaded by admins"
+    },
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Root user profile document"
+    },
+    "/users/{userId}/combat_revisions/{revisionId}": {
+      "schema": {
+        "$ref": "#/entities/CombatRevision"
+      },
+      "description": "Proof-of-work deterministic battle revisions stored in Firestore"
+    },
+    "/users/{userId}/match_queue/{queueId}": {
+      "schema": {
+        "$ref": "#/entities/MatchQueueItem"
+      },
+      "description": "Real-time match queue tracking Pending and Finalized deterministic battle simulations"
+    },
+    "/users/{userId}/rpg_profile/{profileId}": {
+      "schema": {
+        "$ref": "#/entities/UserRpgProfile"
+      },
+      "description": "Idempotent RPG hero progression, allocated skill stats, and honor medals"
+    },
+    "/users/{userId}/saved_datasets/{datasetId}": {
+      "schema": {
+        "$ref": "#/entities/SavedDataset"
+      },
+      "description": "Saved datasets and training learning data owned by the user"
+    },
+    "/users/{userId}/dataset_snapshots/{snapshotId}": {
+      "schema": {
+        "$ref": "#/entities/DatasetSnapshot"
+      },
+      "description": "Historical snapshots of dataset states for visual diff comparisons"
+    },
+    "/users/{userId}/connected_projects/{projectId}": {
+      "schema": {
+        "$ref": "#/entities/ConnectedProject"
+      },
+      "description": "Hugging Face projects connected to the user for export destinations"
+    }
+  }
+}
