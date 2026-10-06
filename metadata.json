@@ -1,0 +1,6 @@
+{
+  "name": "Hugging Face MCP Data Studio",
+  "description": "Model Context Protocol server and AI data pipeline optimizer for Hugging Face Datasets, model fine-tuning, synthetic data generation, and dataset engineering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
